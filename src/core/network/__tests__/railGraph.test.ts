@@ -12,7 +12,22 @@ function makeNode(id: string, x: number, z: number): RailNode {
 }
 
 function makeEdge(id: string, from: string, to: string, distance: number): RailEdge {
-	return { id, fabId: "F1", fromNodeId: from, toNodeId: to, distance, maxSpeed: 5 };
+	return {
+		id,
+		fabId: "F1",
+		fromNodeId: from,
+		toNodeId: to,
+		distance,
+		maxSpeed: 5,
+		lineType: "straight",
+		isConfluence: false,
+		isBranch: false,
+		bayId: null,
+		density: 0,
+		weight: 1.0,
+		enabled: true,
+		curveRadius: null,
+	};
 }
 
 describe("buildRailGraph", () => {

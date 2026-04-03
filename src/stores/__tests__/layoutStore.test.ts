@@ -90,7 +90,7 @@ describe("LayoutStore", () => {
 	it("adds rail nodes and edges", () => {
 		const state = useLayoutStore.getState();
 		const fabId = state.addFab("F1");
-		const n1 = state.addRailNode(fabId, "station", { x: 0, y: 0, z: 0 });
+		const n1 = state.addRailNode(fabId, "port", { x: 0, y: 0, z: 0 });
 		const n2 = state.addRailNode(fabId, "waypoint", { x: 10, y: 0, z: 0 });
 		const edgeId = state.addRailEdge(fabId, n1, n2);
 
@@ -104,7 +104,7 @@ describe("LayoutStore", () => {
 	it("removes rail node and cascades edge removal", () => {
 		const state = useLayoutStore.getState();
 		const fabId = state.addFab("F1");
-		const n1 = state.addRailNode(fabId, "station", { x: 0, y: 0, z: 0 });
+		const n1 = state.addRailNode(fabId, "port", { x: 0, y: 0, z: 0 });
 		const n2 = state.addRailNode(fabId, "waypoint", { x: 10, y: 0, z: 0 });
 		state.addRailEdge(fabId, n1, n2);
 

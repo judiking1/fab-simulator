@@ -11,8 +11,8 @@ export const RAIL_NODE_TYPES = {
 	JUNCTION: "junction",
 	/** Merge point where rails join */
 	MERGE: "merge",
-	/** Equipment loading/unloading station */
-	STATION: "station",
+	/** Equipment loading/unloading port */
+	PORT: "port",
 } as const;
 
 export type RailNodeType = (typeof RAIL_NODE_TYPES)[keyof typeof RAIL_NODE_TYPES];
@@ -22,9 +22,22 @@ export interface RailNode {
 	fabId: EntityId;
 	type: RailNodeType;
 	position: Vector3;
-	/** Equipment ID if this is a station node (null otherwise) */
+	/** Equipment ID if this is a port node (null otherwise) */
 	equipmentId: EntityId | null;
 }
+
+// ─── Rail Line Type ─────────────────────────────────────────────
+
+export const RAIL_LINE_TYPES = {
+	STRAIGHT: "straight",
+	CURVE: "curve",
+	S_CURVE: "s_curve",
+	U_TURN: "u_turn",
+} as const;
+
+export type RailLineType = (typeof RAIL_LINE_TYPES)[keyof typeof RAIL_LINE_TYPES];
+
+// ─── Rail Edge ──────────────────────────────────────────────────
 
 export interface RailEdge {
 	id: EntityId;
@@ -37,4 +50,20 @@ export interface RailEdge {
 	distance: number;
 	/** Max OHT speed on this segment (m/s) */
 	maxSpeed: number;
+	/** Segment shape type */
+	lineType: RailLineType;
+	/** Whether this is a confluence (merge) point at the end */
+	isConfluence: boolean;
+	/** Whether this is a branch (split) point at the start */
+	isBranch: boolean;
+	/** Bay this segment belongs to (for KPI grouping) */
+	bayId: EntityId | null;
+	/** Current traffic density 0-100 (updated during simulation) */
+	density: number;
+	/** Dynamic routing weight (default 1.0) */
+	weight: number;
+	/** Whether this segment is enabled for traffic */
+	enabled: boolean;
+	/** Curve radius in meters (null for straight segments) */
+	curveRadius: number | null;
 }

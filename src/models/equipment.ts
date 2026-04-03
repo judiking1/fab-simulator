@@ -1,5 +1,15 @@
 import type { EntityId, Vector3 } from "@/types/common";
 
+// ─── Port Type ──────────────────────────────────────────────────
+
+export const PORT_TYPES = {
+	LOAD: "load",
+	UNLOAD: "unload",
+	BIDIRECTIONAL: "bidirectional",
+} as const;
+
+export type PortType = (typeof PORT_TYPES)[keyof typeof PORT_TYPES];
+
 // ─── Equipment Port ──────────────────────────────────────────────
 // A port is a physical load/unload point where an OHT can pick up or deposit a FOUP.
 
@@ -11,6 +21,10 @@ export interface EquipmentPort {
 	hasFoup: boolean;
 	/** ID of the FOUP at this port (null if empty) */
 	foupId: EntityId | null;
+	/** Port position relative to equipment */
+	position: Vector3;
+	/** Port type */
+	portType: PortType;
 }
 
 // ─── FOUP Slot ───────────────────────────────────────────────────

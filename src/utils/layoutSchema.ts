@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { EQUIPMENT_TYPES } from "@/models/equipment";
+import { EQUIPMENT_TYPES, PORT_TYPES } from "@/models/equipment";
 import { FOUP_LOCATIONS } from "@/models/foup";
-import { RAIL_NODE_TYPES } from "@/models/rail";
+import { RAIL_LINE_TYPES, RAIL_NODE_TYPES } from "@/models/rail";
 
 // ─── Shared Schemas ──────────────────────────────────────────────
 
@@ -55,6 +55,8 @@ const equipmentPortSchema = z.object({
 	railNodeId: z.string().nullable(),
 	hasFoup: z.boolean(),
 	foupId: z.string().nullable(),
+	position: vector3Schema,
+	portType: z.enum([PORT_TYPES.LOAD, PORT_TYPES.UNLOAD, PORT_TYPES.BIDIRECTIONAL]),
 });
 
 const foupSlotSchema = z.object({
@@ -111,7 +113,7 @@ const railNodeSchema = z.object({
 		RAIL_NODE_TYPES.WAYPOINT,
 		RAIL_NODE_TYPES.JUNCTION,
 		RAIL_NODE_TYPES.MERGE,
-		RAIL_NODE_TYPES.STATION,
+		RAIL_NODE_TYPES.PORT,
 	]),
 	position: vector3Schema,
 	equipmentId: z.string().nullable(),
@@ -124,6 +126,19 @@ const railEdgeSchema = z.object({
 	toNodeId: z.string(),
 	distance: z.number(),
 	maxSpeed: z.number(),
+	lineType: z.enum([
+		RAIL_LINE_TYPES.STRAIGHT,
+		RAIL_LINE_TYPES.CURVE,
+		RAIL_LINE_TYPES.S_CURVE,
+		RAIL_LINE_TYPES.U_TURN,
+	]),
+	isConfluence: z.boolean(),
+	isBranch: z.boolean(),
+	bayId: z.string().nullable(),
+	density: z.number(),
+	weight: z.number(),
+	enabled: z.boolean(),
+	curveRadius: z.number().nullable(),
 });
 
 // ─── FOUP Schema ─────────────────────────────────────────────────
@@ -152,21 +167,50 @@ const childrenSchema = z.object({
 	moduleEquipment: z.record(z.string(), z.array(z.string())),
 });
 
+// ─── Entities Schema ────────────────────────────────────────────
+
+const entitiesSchema = z.object({
+	fabs: z.record(z.string(), fabSchema),
+	bays: z.record(z.string(), baySchema),
+	areas: z.record(z.string(), areaSchema),
+	modules: z.record(z.string(), moduleSchema),
+	equipment: z.record(z.string(), equipmentSchema),
+	railNodes: z.record(z.string(), railNodeSchema),
+	railEdges: z.record(z.string(), railEdgeSchema),
+	foups: z.record(z.string(), foupSchema),
+});
+
+// ─── Layout File Metadata ───────────────────────────────────────
+
+const metadataSchema = z.object({
+	exportedAt: z.string(),
+	entityCounts: z.object({
+		fabs: z.number(),
+		bays: z.number(),
+		areas: z.number(),
+		modules: z.number(),
+		equipment: z.number(),
+		railNodes: z.number(),
+		railEdges: z.number(),
+		foups: z.number(),
+	}),
+});
+
 // ─── Full Layout File Schema ─────────────────────────────────────
 
 export const layoutFileSchema = z.object({
+	version: z.literal("1.0"),
+	entities: entitiesSchema,
+	children: childrenSchema,
+	metadata: metadataSchema.optional(),
+});
+
+/** Legacy v1 schema for backwards compatibility */
+export const layoutFileLegacySchema = z.object({
 	version: z.literal(1),
-	entities: z.object({
-		fabs: z.record(z.string(), fabSchema),
-		bays: z.record(z.string(), baySchema),
-		areas: z.record(z.string(), areaSchema),
-		modules: z.record(z.string(), moduleSchema),
-		equipment: z.record(z.string(), equipmentSchema),
-		railNodes: z.record(z.string(), railNodeSchema),
-		railEdges: z.record(z.string(), railEdgeSchema),
-		foups: z.record(z.string(), foupSchema),
-	}),
+	entities: entitiesSchema,
 	children: childrenSchema,
 });
 
 export type LayoutFile = z.infer<typeof layoutFileSchema>;
+export type LayoutFileLegacy = z.infer<typeof layoutFileLegacySchema>;

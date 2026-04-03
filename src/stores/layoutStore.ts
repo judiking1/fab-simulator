@@ -1,8 +1,10 @@
 import { create } from "zustand";
 import type { Equipment, EquipmentType } from "@/models/equipment";
+import { PORT_TYPES } from "@/models/equipment";
 import type { Foup } from "@/models/foup";
 import type { Area, Bay, Fab, Module } from "@/models/layout";
 import type { RailEdge, RailNode, RailNodeType } from "@/models/rail";
+import { RAIL_LINE_TYPES } from "@/models/rail";
 import type { EntityId, Vector3 } from "@/types/common";
 import { createEntityId } from "@/types/common";
 
@@ -143,6 +145,20 @@ function removeChild(
 
 // ─── Default equipment factory ───────────────────────────────────
 
+function createDefaultPort(
+	id: EntityId,
+	position: Vector3,
+): import("@/models/equipment").EquipmentPort {
+	return {
+		id,
+		railNodeId: null,
+		hasFoup: false,
+		foupId: null,
+		position,
+		portType: PORT_TYPES.BIDIRECTIONAL,
+	};
+}
+
 function createDefaultEquipment(
 	id: EntityId,
 	moduleId: EntityId,
@@ -150,7 +166,8 @@ function createDefaultEquipment(
 	name: string,
 	position: Vector3,
 ): Equipment {
-	const base = { id, moduleId, name, position, ports: [] };
+	const defaultPort = createDefaultPort(createEntityId("PORT"), { x: 0, y: 0, z: 0 });
+	const base = { id, moduleId, name, position, ports: [defaultPort] };
 	switch (type) {
 		case "process":
 			return { ...base, type: "process", processTime: 60 };
@@ -364,7 +381,25 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
 		const distance =
 			fromNode && toNode ? computeEdgeDistance(fromNode.position, toNode.position) : 0;
 		set((s) => ({
-			railEdges: { ...s.railEdges, [id]: { id, fabId, fromNodeId, toNodeId, distance, maxSpeed } },
+			railEdges: {
+				...s.railEdges,
+				[id]: {
+					id,
+					fabId,
+					fromNodeId,
+					toNodeId,
+					distance,
+					maxSpeed,
+					lineType: RAIL_LINE_TYPES.STRAIGHT,
+					isConfluence: false,
+					isBranch: false,
+					bayId: null,
+					density: 0,
+					weight: 1.0,
+					enabled: true,
+					curveRadius: null,
+				},
+			},
 		}));
 		return id;
 	},
