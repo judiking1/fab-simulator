@@ -1,77 +1,62 @@
-# Design Direction: Fab Simulator
+# Design Direction
 
 ## Design Tone
+**Modern Dashboard** — Clean, dark-theme-first industrial tool aesthetic.
+Inspiration: Linear, Figma, Grafana dark mode.
 
-**Industrial Dashboard** with Dark/Light mode toggle.
+## Color Scheme
+- **Primary**: Dark theme (near-black backgrounds, subtle borders)
+- **Accent**: Blue/cyan for interactive elements (rail highlights, selected OHT)
+- **Status colors**:
+  - Idle OHT: gray
+  - Moving: blue/cyan
+  - Loading/Unloading: amber/yellow
+  - Error/Stopped: red
+  - Selected: white/bright highlight
+- **Equipment**:
+  - EQ: muted green
+  - STK: muted purple
+  - OHB: muted orange
 
-- Dark mode (default): High-contrast data visualization, reduced eye strain for extended use
-- Light mode: Clean workspace for layout editing and documentation
-- Data-dense but organized — similar to Grafana, control system UIs
-
-## Layout Pattern
-
-**3D Viewport-Centered + Side Panels**
-
+## Layout Structure
 ```
-┌──────────────────────────────────────────────┐
-│ [Nav]   Fab Simulator              [▶ Run]   │
-├────────┬────────────────────┬────────────────┤
-│ Fab    │                    │ KPI Panel      │
-│ Tree   │   3D Viewport      │ - Throughput   │
-│        │   (main view)      │ - Wait Time    │
-│ Param  │                    │ - Utilization  │
-│ Panel  │                    │ Charts         │
-├────────┴────────────────────┴────────────────┤
-│ Timeline / Simulation Playback Controls      │
-└──────────────────────────────────────────────┘
++-----------------------------------------------------+
+|  Header Bar (app title, mode toggle, settings)       |
++----------+---------------------------+--------------+
+|          |                           |              |
+|  Left    |    3D Viewport            |   Right      |
+|  Panel   |    (main area)            |   Panel      |
+|          |                           |              |
+|  - Map   |                           |  - Info      |
+|    Tree  |                           |  - Stats     |
+|  - Editor|                           |  - Vehicle   |
+|    Tools |                           |    Search    |
+|          |                           |              |
++----------+---------------------------+--------------+
+|  Bottom Bar (simulation controls, speed, timeline)   |
++-----------------------------------------------------+
 ```
 
-### Panel Breakdown
+- **3D Viewport**: Center, takes maximum available space
+- **Left Panel**: Collapsible. Map tree browser, editor tools
+- **Right Panel**: Collapsible. Info display, statistics, vehicle search
+- **Bottom Bar**: Simulation playback controls, speed slider, status indicators
+- **Panels are resizable** via drag handles
 
-- **Left Panel**: Fab hierarchy tree (collapsible) + parameter adjustment controls
-- **Center**: 3D viewport (R3F) — rail network, equipment, OHT vehicles
-- **Right Panel**: KPI dashboard — real-time metrics during playback, charts
-- **Bottom Bar**: Simulation timeline, playback speed, play/pause/step controls
-
-## Responsive Strategy
-
-**Desktop Only** — No mobile/tablet consideration. Designed for large monitors (1920x1080+). Panels are resizable but not collapsible to mobile layout.
-
-## Color System
-
-### Dark Mode (Primary)
-- Background: Deep gray (`#0f1117` / `#1a1d27`)
-- Surface: Medium gray (`#252830`)
-- Accent: Cyan/Blue for active elements and OHT paths
-- Success: Green for optimal metrics
-- Warning: Amber for degraded performance
-- Danger: Red for bottlenecks and critical wait times
-
-### Light Mode
-- Background: Off-white (`#f8f9fa`)
-- Surface: White (`#ffffff`)
-- Same semantic accent colors, adjusted for light contrast
-
-### Data Visualization Colors
-- OHT vehicles: Bright cyan
-- Rail network: Neutral gray with direction indicators
-- Equipment (idle): Muted blue
-- Equipment (processing): Green
-- Equipment (waiting for wafer): Amber/pulsing
-- Bottleneck zones: Red overlay/heatmap
-
-## 3D Viewport Design
-
-- **Camera**: Orbit controls (rotate, zoom, pan). Top-down default, free orbit available
-- **Equipment**: Simple geometric shapes (boxes) with status-based color coding
-- **Rail**: Lines/tubes along 3D paths with direction arrows
-- **OHT**: Small colored cubes/capsules moving along rails during playback
-- **Selection**: Click to select equipment/OHT, show detail popup
-- **Level of Detail (LOD)**: Simplify distant geometry when zoomed out for performance
-- **Heatmap overlay**: Optional overlay showing traffic density on rail segments
+## Component Library
+- **shadcn/ui** for all UI controls (buttons, inputs, selects, tabs, dialogs)
+- **Tailwind CSS v4** for layout and custom styling
+- **Dark theme by default**, light theme optional
 
 ## Typography
+- **Monospace** for data values (IDs, coordinates, ratios)
+- **Sans-serif** (system font stack) for labels and UI text
+- Small font sizes for dense information panels
 
-- Monospace for numerical data, metrics, IDs
-- Sans-serif (system font stack) for labels and UI text
-- Clear hierarchy: large KPI numbers, medium labels, small detail text
+## 3D Visual Style
+- **Rails**: Colored tubes/lines with direction arrows (animated texture like VOS)
+- **Equipment**: Simple 3D boxes with type-specific colors, port markers
+- **OHTs**: Small box meshes, color-coded by state, InstancedMesh for performance
+- **FOUPs**: Small colored box on OHT or at port location
+- **Grid floor**: Subtle reference grid
+- **Minimal lighting**: Ambient + single directional, no shadows (performance)

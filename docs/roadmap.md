@@ -1,89 +1,127 @@
-# Roadmap: Fab Simulator
+# Roadmap
 
-## Milestone 1: Foundation (Weeks 1-3)
-> Project scaffolding + core data models + basic 3D viewport
+## Approach: Bottom-Up Incremental
+Each milestone delivers a working, testable result. Later milestones build on earlier ones.
 
-- [x] Vite + React + TypeScript + Tailwind + Biome setup
-- [x] Dark/Light theme toggle
-- [ ] Layout data model: Fab → Bay → Area → Module → Equipment (Process, Stocker, OHB)
-- [ ] FOUP model: carrier entity with location tracking
-- [ ] Transfer Command model: state machine with timestamp tracking per transition
-- [ ] Rail network graph data structure (nodes, edges, directionality)
-- [ ] Normalized Zustand stores: LayoutStore (entity map + children), SimConfigStore
-- [ ] CameraControls setup: free movement, overview mode, zoom-to-entity
-- [ ] Basic R3F viewport: grid, placeholder equipment boxes, rail lines
-- [ ] Layout file import/export (JSON with zod validation)
+---
 
-## Milestone 2: Layout Editor (Weeks 4-6)
-> Interactive fab layout creation and editing in 3D
+## Milestone 1: Map Import & 3D Rendering
+**Goal**: Import VOS CSV -> see rail network in 3D
 
-- [ ] Fab hierarchy tree panel (left sidebar)
-- [ ] 3D equipment placement (drag & drop or coordinate input)
-- [ ] Rail path editor: draw rail segments in 3D, set directionality
-- [ ] Equipment port configuration (input/output ports for OHT pick/drop)
-- [ ] Stocker and OHB placement
-- [ ] Bay/Area boundary visualization
-- [ ] Layout validation (connected rail graph, reachable equipment)
+### Tasks
+- [ ] CSV parser for node.map, edge.map, station.map formats
+- [ ] Internal data model (RailNode, RailEdge, Location types)
+- [ ] Zustand map store with normalized data
+- [ ] R3F canvas setup with CameraControls
+- [ ] Rail edge rendering (linear + curves) with InstancedMesh
+- [ ] Node rendering
+- [ ] Equipment rendering (EQ/STK/OHB) at station positions
+- [ ] Basic camera controls (pan, zoom, rotate)
+- [ ] Dark theme UI shell (header, viewport, placeholder panels)
 
-## Milestone 3: Simulation Engine (Weeks 7-10)
-> DES engine in Web Worker + Transfer Command state machine
+**Exit criteria**: Load VOS CSV files -> see the full fab rail network and equipment in 3D.
 
-- [ ] Web Worker setup with typed message protocol
-- [ ] DES core: priority event queue, simulation clock, event loop
-- [ ] OHT entity: position, state (idle/carrying), current FOUP reference
-- [ ] FOUP tracking: location state (at equipment / on OHT / in transit)
-- [ ] Transfer Command state machine: full lifecycle (created → deposit_done)
-- [ ] Timestamp recording per state transition for KPI extraction
-- [ ] Rail network pathfinding (A* on graph)
-- [ ] Basic dispatching: FIFO assignment to nearest idle OHT
-- [ ] Equipment port model: FOUP slot management, pick/deposit operations
-- [ ] Stocker/OHB buffer logic: temporary storage, capacity constraints
-- [ ] Simulation run: config in → transfer event log out
-- [ ] Progress reporting (Worker → Main thread percentage updates)
+---
 
-## Milestone 4: Playback & Dashboard (Weeks 11-13)
-> 3D result playback + KPI visualization
+## Milestone 2: OHT Movement
+**Goal**: OHTs move along rails autonomously
 
-- [ ] Timeline component: play, pause, step, speed control
-- [ ] OHT movement animation (InstancedMesh for 1000+ vehicles)
-- [ ] FOUP visualization on OHTs and at equipment ports
-- [ ] Equipment status color coding during playback (idle/processing/waiting)
-- [ ] Camera modes: OHT follow, equipment focus, fab overview with smooth transitions
-- [ ] Right panel: KPI dashboard
-  - Throughput (FOUPs/hour, lots/hour)
-  - Transfer time breakdown (wait / travel / pick dwell / deposit dwell)
-  - OHT utilization rate
-  - Equipment utilization rate
-  - Stocker/OHB occupancy rates
-- [ ] Transfer history table: per-command timeline with state transitions
-- [ ] Bottleneck heatmap overlay on rail segments
-- [ ] Simulation result export (CSV)
+### Tasks
+- [ ] OHT vehicle model (edge+ratio position, state machine)
+- [ ] Dijkstra pathfinding on rail graph
+- [ ] Edge+ratio -> 3D position interpolation (linear + curve)
+- [ ] OHT InstancedMesh rendering with state-based colors
+- [ ] Basic simulation loop in Web Worker (tick-based)
+- [ ] Vehicle spawning on specified edges
+- [ ] Speed calculation (acceleration, deceleration, curve limits)
+- [ ] Simple collision avoidance (sensor zones)
+- [ ] Simulation controls (start, pause, reset)
+- [ ] Speed control slider (1x ~ 32x)
 
-## Milestone 5: Scenario Comparison (Weeks 14-16)
-> Parameter tuning + multi-run comparison
+**Exit criteria**: Spawn OHTs on map -> they move along edges, avoid collisions, respond to speed changes.
 
-- [ ] Parameter panel: OHT count, speed, dispatching algorithm selection
-- [ ] Multiple dispatching algorithms (FIFO, nearest-first, priority-based)
-- [ ] Scenario save/load
-- [ ] Side-by-side comparison view (2 simulation results)
-- [ ] Delta charts: "before vs after" for key metrics
-- [ ] Sensitivity analysis: sweep a parameter range, plot metric curves
+---
 
-## Milestone 6: Giga-Fab Scale (Weeks 17-20)
-> Scale from single bay to full giga-fab
+## Milestone 3: Transfer System
+**Goal**: FOUPs move between equipment via OHT transfers
 
-- [ ] Multi-fab layout support (3-4 connected fabs)
-- [ ] Inter-fab transfer rails and OHT handoff logic
-- [ ] LOD (Level of Detail) rendering for zoom levels
-- [ ] Spatial partitioning for large rail networks
-- [ ] Performance profiling and optimization (target: 4000+ OHTs smooth playback)
-- [ ] Hierarchical drill-down: fab overview → bay detail → equipment detail
+### Tasks
+- [ ] FOUP model (location tracking)
+- [ ] Transfer command model (lifecycle states)
+- [ ] Auto transfer generator (random or pattern-based)
+- [ ] Dispatcher: assign idle OHT to pending transfer
+- [ ] Transfer execution: pick -> move -> drop flow
+- [ ] Pickup/dropdown animation (arm movement)
+- [ ] Location port occupancy tracking
+- [ ] Transfer status visualization
 
-## Future Considerations (Post-MVP)
+**Exit criteria**: Transfers auto-generated -> OHTs pick up FOUPs -> deliver to destinations -> cycle repeats.
 
-- Advanced dispatching algorithms (ML-based, real-time optimization)
-- Historical data import from real fab MES/MCS systems
-- Multi-user collaboration (add backend)
-- Server-side simulation for very large scale
-- Preventive maintenance simulation (OHT breakdowns, rail closures)
-- Integration with real OHT controller protocols
+---
+
+## Milestone 4: Information Panels
+**Goal**: View details about selected entities
+
+### Tasks
+- [ ] Entity selection (click OHT/edge/equipment in 3D)
+- [ ] Right panel: Vehicle info (ID, state, edge, ratio, speed, FOUP)
+- [ ] Right panel: Edge info (type, length, speed limit, bay)
+- [ ] Right panel: Equipment info (type, ports, FOUPs)
+- [ ] Left panel: Map tree browser (fab -> bay -> edges/locations)
+- [ ] Vehicle search and filter
+- [ ] Bottom bar: Simulation status, vehicle count, transfer count
+
+**Exit criteria**: Click any entity -> see full details in side panel. Browse map hierarchy.
+
+---
+
+## Milestone 5: Map Editor
+**Goal**: Create and edit rail networks visually
+
+### Tasks
+- [ ] Editor mode toggle (view mode vs edit mode)
+- [ ] Create node (click to place)
+- [ ] Create edge (click two nodes to connect)
+- [ ] Edge type selection (linear, curve with radius)
+- [ ] Create location/port (attach to edge)
+- [ ] Move node (drag to reposition, connected edges update)
+- [ ] Delete node/edge/location
+- [ ] Property editor (select -> edit attributes in panel)
+- [ ] Undo/redo
+- [ ] CSV export (save map to VOS-compatible format)
+- [ ] Bay preset templates (pre-built loop patterns)
+
+**Exit criteria**: Create a small rail network from scratch -> add equipment -> run simulation on it.
+
+---
+
+## Milestone 6: Statistics Dashboard
+**Goal**: Analyze simulation performance with charts and tables
+
+### Tasks
+- [ ] KPI calculation engine (throughput, utilization, wait time, cycle time)
+- [ ] KPI summary cards (real-time updating)
+- [ ] Throughput trend chart (ECharts line chart)
+- [ ] Transfer log table (AG Grid with filter/sort/export)
+- [ ] Bay-to-bay transfer heatmap
+- [ ] OHT utilization chart
+- [ ] Edge traffic density overlay on 3D view
+- [ ] Bottleneck detection and highlighting
+
+**Exit criteria**: Run simulation -> see real-time KPI dashboard -> export transfer data.
+
+---
+
+## Milestone 7: Polish & Advanced Features
+**Goal**: Production-quality UX and advanced capabilities
+
+### Tasks
+- [ ] Camera modes (follow OHT, overview, equipment focus)
+- [ ] Confluence lock visualization
+- [ ] Advanced dispatching algorithms (nearest-first, zone-based)
+- [ ] Map save/load to browser (localStorage or IndexedDB)
+- [ ] Fab-level presets (full fab template maps)
+- [ ] Hierarchy grouping UI (bay -> area -> module)
+- [ ] Performance optimization pass (profiling, LOD)
+- [ ] Dark/light theme toggle
+- [ ] Keyboard shortcuts

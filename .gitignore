@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Test data (VOS map files copied for development)
+public/railConfig/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

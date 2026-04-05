@@ -1,69 +1,97 @@
-import type { EntityId, Vector3 } from "@/types/common";
+/**
+ * Rail — A directed rail segment connecting two Nodes.
+ * OHTs travel from fromNode to toNode (no reverse).
+ */
 
-// ─── Rail Network ────────────────────────────────────────────────
-// The rail network is a directed graph. OHTs travel along edges in one direction.
-// Nodes are junctions/waypoints. Edges connect nodes with a defined direction.
-
-export const RAIL_NODE_TYPES = {
-	/** Normal waypoint along a rail */
-	WAYPOINT: "waypoint",
-	/** Junction where rails split */
-	JUNCTION: "junction",
-	/** Merge point where rails join */
-	MERGE: "merge",
-	/** Equipment loading/unloading port */
-	PORT: "port",
+export const RAIL_TYPE = {
+	LINEAR: "LINEAR",
+	CURVE: "CURVE",
+	LEFT_CURVE: "LEFT_CURVE",
+	RIGHT_CURVE: "RIGHT_CURVE",
+	S_CURVE: "S_CURVE",
+	CSC_CURVE_HOMO: "CSC_CURVE_HOMO",
+	CSC_CURVE_HETE: "CSC_CURVE_HETE",
 } as const;
 
-export type RailNodeType = (typeof RAIL_NODE_TYPES)[keyof typeof RAIL_NODE_TYPES];
+export type RailType = (typeof RAIL_TYPE)[keyof typeof RAIL_TYPE];
 
-export interface RailNode {
-	id: EntityId;
-	fabId: EntityId;
-	type: RailNodeType;
-	position: Vector3;
-	/** Equipment ID if this is a port node (null otherwise) */
-	equipmentId: EntityId | null;
+export interface RailData {
+	id: string;
+	fromNodeId: string;
+	toNodeId: string;
+	railType: RailType;
+	/** Calculated or measured length of the rail segment */
+	length: number;
+	bayId: string;
+	fabId: string;
+	/** Max speed on this rail (mm/s) */
+	speed: number;
+	/** Acceleration (mm/s²) */
+	acc: number;
+	/** Deceleration (mm/s², typically negative) */
+	dec: number;
+	/** Curve radius. -1 for LINEAR rails */
+	radius: number;
+	/**
+	 * Intermediate node IDs for CSC_CURVE_HETE (typically 6 nodes).
+	 * Empty array for all other rail types.
+	 */
+	curveNodeIds: string[];
+
+	// --- Curve geometry data (from VOS origin coordinates) ---
+
+	/** Curve start point (distinct from fromNode position). null for LINEAR. */
+	originFrom: { x: number; y: number; z: number } | null;
+	/** Curve end point (distinct from toNode position). null for LINEAR. */
+	originTo: { x: number; y: number; z: number } | null;
+	/** Front Linear Element — straight distance from fromNode to curve start */
+	fle: number;
+	/** Tail Linear Element — straight distance from curve end to toNode */
+	tle: number;
+	/** Outer Linear Element — curve portion distance */
+	ole: number;
 }
 
-// ─── Rail Line Type ─────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// RailCreationParams — discriminated union for type-safe rail creation
+// ---------------------------------------------------------------------------
 
-export const RAIL_LINE_TYPES = {
-	STRAIGHT: "straight",
-	CURVE: "curve",
-	S_CURVE: "s_curve",
-	U_TURN: "u_turn",
-} as const;
-
-export type RailLineType = (typeof RAIL_LINE_TYPES)[keyof typeof RAIL_LINE_TYPES];
-
-// ─── Rail Edge ──────────────────────────────────────────────────
-
-export interface RailEdge {
-	id: EntityId;
-	fabId: EntityId;
-	/** Source node (directed edge: from → to) */
-	fromNodeId: EntityId;
-	/** Target node */
-	toNodeId: EntityId;
-	/** Edge length in meters (computed from node positions or set manually) */
-	distance: number;
-	/** Max OHT speed on this segment (m/s) */
-	maxSpeed: number;
-	/** Segment shape type */
-	lineType: RailLineType;
-	/** Whether this is a confluence (merge) point at the end */
-	isConfluence: boolean;
-	/** Whether this is a branch (split) point at the start */
-	isBranch: boolean;
-	/** Bay this segment belongs to (for KPI grouping) */
-	bayId: EntityId | null;
-	/** Current traffic density 0-100 (updated during simulation) */
-	density: number;
-	/** Dynamic routing weight (default 1.0) */
-	weight: number;
-	/** Whether this segment is enabled for traffic */
-	enabled: boolean;
-	/** Curve radius in meters (null for straight segments) */
-	curveRadius: number | null;
+interface RailCreationBase {
+	id: string;
+	fromNodeId: string;
+	toNodeId: string;
+	bayId: string;
+	fabId: string;
+	speed: number;
+	acc: number;
+	dec: number;
 }
+
+interface LinearRailCreation extends RailCreationBase {
+	railType: typeof RAIL_TYPE.LINEAR;
+}
+
+interface CurveRailCreation extends RailCreationBase {
+	railType:
+		| typeof RAIL_TYPE.CURVE
+		| typeof RAIL_TYPE.LEFT_CURVE
+		| typeof RAIL_TYPE.RIGHT_CURVE
+		| typeof RAIL_TYPE.S_CURVE;
+	radius: number;
+}
+
+interface CscHomoRailCreation extends RailCreationBase {
+	railType: typeof RAIL_TYPE.CSC_CURVE_HOMO;
+}
+
+interface CscHeteRailCreation extends RailCreationBase {
+	railType: typeof RAIL_TYPE.CSC_CURVE_HETE;
+	/** Exactly 6 intermediate curve node IDs */
+	curveNodeIds: [string, string, string, string, string, string];
+}
+
+export type RailCreationParams =
+	| LinearRailCreation
+	| CurveRailCreation
+	| CscHomoRailCreation
+	| CscHeteRailCreation;

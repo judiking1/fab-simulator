@@ -5,63 +5,96 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 - **Name**: fab-simulator
-- **Description**: OHT(Overhead Hoist Transport) transfer efficiency test simulator for semiconductor giga-fab
+- **Description**: Standalone OHT logistics simulator for semiconductor giga-fab — map editor + auto-simulation + 3D visualization in one app
+- **Motivation**: Merge VOS (3D visualization) + VCU (vehicle control) into a single web SPA with built-in map editing and autonomous simulation
 - **Target**: Desktop-only web SPA (no responsive/mobile)
 - **Deploy**: Vercel (static SPA)
 
 ## Domain Context
 
-This simulator models OHT vehicle logistics in a semiconductor fabrication facility.
+This simulator models OHT (Overhead Hoist Transport) vehicle logistics in a semiconductor fabrication facility.
 
-### Layout Hierarchy
-```
-Fab → Bay → Area → Module → Equipment
-```
-- Giga-fab scale: 3-4 mid-size fabs (1000+ OHTs each) connected
-- Each level has a unique ID: `fab_id > bay_id > area_id > module_id > eq_id`
-- Normalized entity store: global unique IDs + parent references for O(1) lookup
+### Terminology (our terms, NOT VOS terms)
 
-### Equipment Types (discriminated union by `type` field)
-| Type | Role | FOUP Capacity | Rail Attachment |
-|------|------|---------------|-----------------|
-| `process` | Wafer processing (etch, litho, etc.) | 1-3 port slots | Near rail via port |
-| `stocker` | Bulk FOUP storage | 10-100+ shelves | Dedicated rail node |
-| `ohb` | Overhead Buffer, temporary rail-side storage | 1-2 slots | Directly on rail |
+| Concept | Our Term | VOS Term | Notes |
+|---------|----------|----------|-------|
+| Waypoint | **Node** | node | Graph vertex |
+| Rail segment | **Rail** | edge | Directed: fromNode → toNode |
+| Load/unload point | **Port** | station | Attached to Rail at ratio |
+| Rail loop group | **Bay** | bay | Closed CCW loop |
+| Equipment group | **Module** | (none) | Future: user-defined |
+| Bay group | **Area** | (none) | Future: user-defined |
 
-All equipment types have **ports** (load/unload points for OHT) and track **FOUP presence** per slot.
+VOS terms appear ONLY inside the VOS import adapter — everywhere else uses our terms.
+
+### Core Data Model
+
+**Node** — Waypoints in 3D space (Y-up coordinate system)
+**Rail** — Directed rail segments connecting nodes. Types: LINEAR, CURVE, LEFT_CURVE, RIGHT_CURVE, S_CURVE, CSC_CURVE
+**Port** — Load/unload points on equipment (EQ, STK, OHB), attached to a Rail at a ratio
+**Bay** — Ordered list of Rails forming a closed loop (default: counter-clockwise)
+
+### Position Model
+Everything is positioned by **rail + ratio (0.0~1.0)**:
+- `ratio = 0.0` → at fromNode
+- `ratio = 1.0` → at toNode
+- OHT movement = ratio advancing along rail sequence
+
+### File Format
+- **Native**: `.fab.json` — full model with metadata, grouping, presets
+- **Custom CSV**: `nodes.csv`, `rails.csv`, `ports.csv` — our terms, simulation-relevant columns only
+- **VOS Import**: Separate adapter converts VOS `.map` files → internal model (only place VOS terms exist)
+- **VOS Export**: Internal model → VOS `.map` CSV (compatibility layer)
+
+### Coordinate System
+CSV (editor space) → Three.js (world space): `editor_x→X, editor_z→Y(up), editor_y→Z(depth)`
+This swap happens ONLY in CSV parser. Internal model uses Y-up convention.
+
+### Equipment Types
+| Type | Role | Description |
+|------|------|-------------|
+| `EQ` | Process equipment | Wafer processing tools with FOUP ports |
+| `STK` | Stocker | Bulk FOUP storage (automated crane) |
+| `OHB` | Overhead Buffer | Temporary rail-side FOUP storage |
 
 ### FOUP (Front Opening Unified Pod)
-The physical transport unit. OHTs carry FOUPs, not wafers directly.
-- Contains wafers belonging to a lot
-- Always located at exactly one place: equipment slot, OHT, or in transit
-- Tracking FOUP location is critical for simulation state
+The physical transport unit. OHTs carry FOUPs between locations.
+- Always at exactly one place: location port, OHT, or in transit
+- Transfer = move FOUP from source location to destination location
 
-### Transfer Command — Core Simulation Entity
-A transfer command is the trigger that moves an OHT. The full lifecycle:
+### Transfer Command Lifecycle
 ```
 created → assigned → move_to_pick → arrive_at_pick → picking → pick_done
-  → move_to_deposit → arrive_at_deposit → depositing → deposit_done
+  → move_to_drop → arrive_at_drop → dropping → drop_done
 ```
-Each state transition records a **timestamp** for KPI analysis:
-- Transfer time (created → deposit_done)
-- Wait time (created → assigned)
-- Travel time (move_to_pick duration + move_to_deposit duration)
-- Pick/deposit dwell time
+
+### OHT Movement Model (from VCU)
+- **Pathfinding**: Dijkstra on rail graph (edge-to-edge)
+- **Three-segment routing**: START edge check → MIDDLE path search → END edge check
+- **Collision avoidance**: Sensor zones (approach → brake → stop)
+- **Confluence locking**: Lazy lock at junction nodes
+- **Speed control**: Per-edge speed limits, acceleration/deceleration, curve speed reduction
+
+### Hierarchy (future feature)
+```
+Fab → Bay → (Area → Module →) Equipment
+```
+Users can group edges/locations into organizational units. This is metadata for analysis, NOT required for simulation to function.
 
 ### Simulation Model
-- **Discrete Event Simulation (DES)**: batch compute in Web Worker, then replay results in 3D
-- **NOT real-time**: simulation runs to completion first, 3D viewport plays back results
-- Key entities: OHT vehicles, Rail network (graph), FOUP, Transfer Commands
-- Core problems: route optimization, OHT count/placement, bottleneck detection, wait time minimization
+- **Real-time simulation** (NOT batch DES): OHTs move continuously, transfers generated automatically
+- **Speed control**: 1x, 2x, 4x, 8x, 16x, 32x playback speed
+- **All-in-one**: No external VCU/MQTT — routing, dispatching, collision all internal
+- **Web Worker**: Simulation tick runs off main thread
 
 ### 3D Camera System
-Not simple OrbitControls — uses `CameraControls` (drei) for programmatic control via ref:
+Uses `CameraControls` (drei) for programmatic control:
 | Mode | Behavior |
 |------|----------|
 | `free` | WASD/drag movement, free rotation |
-| `follow_oht` | Camera tracks a specific OHT during playback |
+| `follow_oht` | Camera tracks a specific OHT |
 | `overview` | Top-down fab-wide view |
-| `equipment_focus` | Zoom into specific equipment with smooth transition |
+| `equipment_focus` | Zoom into specific equipment |
 
 ## Tech Stack
 
@@ -69,50 +102,87 @@ Not simple OrbitControls — uses `CameraControls` (drei) for programmatic contr
 |------|------|-------|
 | Framework | React 19 + Vite | SPA |
 | Language | TypeScript (strict) | no-any |
-| 3D Engine | React Three Fiber + drei | R3F declarative 3D, CameraControls for cam |
-| Validation | zod | Layout JSON schema validation + TS type inference |
-| Styling | Tailwind CSS v4 | Dark/Light theme support |
-| State | Zustand | Layout, sim config, results stores |
-| Sim Engine | Web Worker | DES engine runs off main thread |
-| Data | JSON/CSV files | No backend, no DB |
+| 3D Engine | React Three Fiber + drei | R3F declarative 3D, CameraControls |
+| UI Components | shadcn/ui | Modern, Tailwind-based, customizable |
+| Styling | Tailwind CSS v4 | Dark theme primary |
+| State | Zustand | Map, simulation, UI stores |
+| Charts | ECharts | High-performance canvas charts |
+| Data Grid | AG Grid | Large dataset tables |
+| Sim Engine | Web Worker | Simulation tick off main thread |
+| Data | CSV/JSON import/export | No backend, no DB |
 | Package Manager | pnpm | |
 | Lint/Format | Biome | |
-
-TanStack Query is NOT needed (no server/API — all local computation).
 
 ## Architecture
 
 ```
 src/
 ├── core/                    # Simulation engine (Web Worker context)
-│   ├── engine/              # DES event loop, priority queue, simulation clock
-│   ├── entities/            # OHT, Equipment, Rail, FOUP data structures
-│   ├── algorithms/          # Pathfinding (A*), dispatching, scheduling
-│   └── network/             # Rail graph, topology, shortest path cache
-├── models/                  # TypeScript interfaces for layout hierarchy
-├── stores/                  # Zustand stores (layout, simConfig, simResult)
-├── workers/                 # Web Worker entry points & message protocol
+│   ├── engine/              # Simulation loop, clock, speed control
+│   ├── pathfinding/         # Dijkstra router, graph traversal
+│   ├── dispatcher/          # Auto transfer generation & OHT assignment
+│   ├── collision/           # Sensor-based collision avoidance
+│   └── vehicle/             # OHT state machine, movement physics
+├── models/                  # TypeScript interfaces & types
+│   ├── node.ts              # RailNode
+│   ├── edge.ts              # RailEdge (with curve geometry)
+│   ├── location.ts          # Location/Port (EQ, STK, OHB)
+│   ├── vehicle.ts           # OHT vehicle state
+│   ├── transfer.ts          # Transfer command
+│   └── map.ts               # MapData (nodes + edges + locations)
+├── stores/                  # Zustand stores
+│   ├── mapStore.ts          # Rail network data (nodes, edges, locations)
+│   ├── vehicleStore.ts      # OHT fleet state
+│   ├── simStore.ts          # Simulation config & runtime state
+│   └── uiStore.ts           # UI state (panels, selection, camera)
+├── workers/                 # Web Worker entry points
+│   └── simWorker.ts         # Simulation tick worker
 ├── components/
-│   ├── viewport/            # R3F 3D scene: rail, equipment, OHT meshes
-│   ├── panels/              # Left sidebar (fab tree, params), right sidebar (KPI)
-│   ├── controls/            # Simulation playback controls, timeline
-│   ├── dashboard/           # Charts (throughput, wait time, utilization)
-│   └── ui/                  # Shared UI primitives (buttons, inputs, etc.)
-├── hooks/                   # Custom hooks (useSimulation, useLayoutTree, etc.)
-├── types/                   # Shared type definitions
+│   ├── viewport/            # R3F 3D scene
+│   │   ├── Scene.tsx        # Main canvas setup
+│   │   ├── RailEdges.tsx    # InstancedMesh rail rendering
+│   │   ├── RailNodes.tsx    # Node markers
+│   │   ├── Equipment.tsx    # EQ/STK/OHB instances
+│   │   ├── Vehicles.tsx     # OHT InstancedMesh
+│   │   └── Camera.tsx       # CameraControls modes
+│   ├── editor/              # Map editor UI
+│   │   ├── EditorToolbar.tsx
+│   │   ├── NodeEditor.tsx
+│   │   ├── EdgeEditor.tsx
+│   │   └── LocationEditor.tsx
+│   ├── panels/              # Side panels
+│   │   ├── InfoPanel.tsx    # Vehicle/edge/location info
+│   │   ├── MapTreePanel.tsx # Hierarchical map browser
+│   │   └── SimPanel.tsx     # Simulation controls
+│   ├── dashboard/           # Statistics & charts
+│   │   ├── KpiCards.tsx
+│   │   ├── ThroughputChart.tsx
+│   │   ├── TransferTable.tsx
+│   │   └── HeatmapChart.tsx
+│   └── ui/                  # shadcn/ui components
+├── parsers/                 # CSV/JSON import/export
+│   ├── csvParser.ts         # Parse VOS-format CSV maps
+│   └── csvExporter.ts       # Export to CSV
+├── hooks/                   # Custom hooks
 ├── utils/                   # Pure utility functions
-├── constants/               # Config constants, default parameters
-├── styles/                  # Global styles, theme tokens
-└── assets/                  # Static assets (icons, textures)
+├── constants/               # Config constants
+└── assets/                  # Static assets
 ```
 
 ### Key Architectural Boundaries
 
-1. **Worker ↔ Main Thread**: Communication via structured message protocol (`postMessage`). The simulation engine (`src/core/`) must be completely independent of React — no DOM, no React imports. This is enforced by the Web Worker boundary.
+1. **Worker ↔ Main Thread**: Simulation engine in `src/core/` is pure logic — no DOM, no React. Communicates via `postMessage` with typed protocol.
 
-2. **Simulation ↔ Visualization**: Simulation produces a time-indexed event log. The 3D viewport reads this log for playback. They never run simultaneously on the same data.
+2. **Simulation ↔ Visualization**: Simulation updates vehicle positions (edge+ratio). Main thread interpolates 3D positions from edge geometry every frame. They run concurrently (not batch-then-replay).
 
-3. **Layout Model ↔ 3D Scene**: Zustand layout store holds the hierarchical data model. R3F components read from the store to render. Editing the layout updates the store, which re-renders the scene.
+3. **Map Data ↔ 3D Scene (3-Layer Architecture)**:
+   - **Layer 1**: Zustand store (source of truth, CRUD operations)
+   - **Layer 2**: Geometry cache (refs, curve cache, SoA buffers, dirty flags)
+   - **Layer 3**: InstancedMesh (imperative setMatrixAt, only dirty indices)
+   - Node CRUD → dirty flag → useFrame recalcs only affected rails/ports
+   - React re-renders ONLY when entity count changes (add/delete), NOT on position updates
+
+4. **Import ↔ Internal Model**: VOS import adapter is separate from internal CSV format. Internal model uses own terms (Rail/Port/Node). Map editor works on internal model directly.
 
 ## Commands
 
@@ -129,18 +199,20 @@ pnpm test <pattern>       # Run single test file
 
 ## Performance Considerations
 
-- **Typed Arrays** (`Float32Array`) for OHT position data — 1000+ vehicles updated per frame during playback
-- **InstancedMesh** in R3F for rendering 1000+ OHTs and equipment with a single draw call
-- **Spatial indexing** for rail network pathfinding (grid or R-tree)
-- **Web Worker** keeps simulation off main thread — UI stays responsive during batch compute
-- **`useRef` over `useState`** for values that change every animation frame (OHT positions during playback)
-- Code splitting with `React.lazy()` for dashboard/chart views
+- **Float32Array** for OHT position/rotation data — 1000+ vehicles updated per frame
+- **InstancedMesh** for OHTs, equipment, rail segments — single draw call per category
+- **Edge curve cache**: Pre-sample CatmullRomCurve3 points (VOS uses 500 samples/curve)
+- **Web Worker** for simulation tick — main thread only renders
+- **useRef over useState** for per-frame data (positions, rotations)
+- **SoA (Structure of Arrays)** for batch geometry data
+- **RAF chunking** for heavy operations (CSV parsing, path generation)
+- Code splitting with `React.lazy()` for dashboard views
 
 ## Builder Principles
 
 - **Boil the Lake**: Full implementation over shortcuts, but distinguish achievable "lake" from endless "ocean"
-- **Search Before Building**: Check existing code/patterns/libraries before creating new
-- **Anti-Sycophancy**: Take positions. "That's interesting" → judge why good/bad. Argue against strongest version of claims (no strawman)
+- **Search Before Building**: Check existing VOS/VCU patterns before creating new
+- **Anti-Sycophancy**: Take positions with evidence. No hedging.
 - **Investigation-First**: No fix before root cause is identified
 - **Scope Control**: >5 file changes → notify user. 3 failed attempts → escalate
 
@@ -148,13 +220,13 @@ pnpm test <pattern>       # Run single test file
 
 | Target | Pattern | Example |
 |--------|---------|---------|
-| Component files | PascalCase | `FabTree.tsx` |
+| Component files | PascalCase | `RailEdges.tsx` |
 | Hook/util files | camelCase | `useSimulation.ts` |
 | Directories | kebab-case | `rail-network/` |
 | Variables/functions | camelCase | `ohtCount`, `handleDispatch` |
-| Types/interfaces | PascalCase | `OhtVehicle`, `SimulationConfig` |
+| Types/interfaces | PascalCase | `RailEdge`, `OhtVehicle` |
 | Constants | SCREAMING_SNAKE | `MAX_OHT_SPEED` |
-| Boolean | is/has/should prefix | `isSimulating`, `hasBottleneck` |
+| Boolean | is/has/should prefix | `isSimulating`, `hasFoup` |
 
 ## TypeScript Rules
 

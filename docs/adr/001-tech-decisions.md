@@ -1,69 +1,91 @@
-# ADR-001: Core Technology Decisions
+# ADR-001: Technical Decisions
 
-## Status
-accepted
-
-## Date
-2026-04-02
+**Status**: Accepted
+**Date**: 2026-04-05
 
 ## Context
-Building a giga-fab scale OHT transfer efficiency simulator. Key constraints:
-- 1000+ OHT vehicles, thousands of equipment nodes
-- 3D visualization of fab layout and OHT movements
-- Batch simulation (not real-time) with result playback
-- Desktop-only web application, no backend required
-- Target users: Fab engineers familiar with OHT systems
+Building a standalone OHT logistics simulator that merges VOS (3D viz) + VCU (control logic) functionality into a single web SPA.
 
 ## Decisions
 
-### 1. Frontend-Only SPA (no backend)
-All simulation runs in the browser. Layout data saved/loaded as JSON/CSV files.
-- **Why**: Eliminates server infrastructure, simplifies deployment, enables offline use
-- **Trade-off**: Large-scale simulations limited by client hardware. Acceptable because batch mode doesn't need real-time constraints.
+### 1. Real-time Simulation over Batch DES
 
-### 2. React Three Fiber for 3D
-R3F (React Three Fiber) + drei helper library over raw Three.js or Babylon.js.
-- **Why**: Declarative React integration, strong ecosystem, easier state management bridge with Zustand
-- **Trade-off**: Slight overhead vs raw Three.js. Mitigated by InstancedMesh for bulk rendering.
+**Decision**: Run simulation in real-time (with speed control) instead of batch Discrete Event Simulation.
 
-### 3. Web Worker for Simulation Engine
-DES (Discrete Event Simulation) engine runs entirely in a Web Worker.
-- **Why**: Keeps UI responsive during compute-heavy simulation. Clean architectural boundary — sim engine has zero React/DOM dependencies.
-- **Trade-off**: Worker communication overhead via postMessage. Acceptable for batch mode (send config → receive full result log).
+**Why**:
+- VOS already demonstrates real-time OHT movement with edge+ratio model
+- Users need to observe OHT behavior as it happens, not replay recorded results
+- Speed control (1x-32x) gives the batch analysis benefit without losing interactivity
+- Batch DES was the previous approach and led to architectural misalignment
 
-### 4. Zustand for State Management
-Three primary stores: LayoutStore, SimConfigStore, SimResultStore.
-- **Why**: Lightweight, works well with R3F (avoids React context re-render issues), slice pattern for large stores.
-- **Trade-off**: No time-travel debugging like Redux. Acceptable for this use case.
+**Trade-off**: More complex state synchronization between sim worker and renderer, but matches VOS's proven architecture.
 
-### 5. Dark/Light Theme Support
-Dual theme from the start using Tailwind CSS v4 dark mode.
-- **Why**: Fab engineers often work in dimly lit clean rooms (dark mode) and bright offices (light mode).
+### 2. Edge+Ratio Position Model (from VOS/VCU)
 
-### 6. File-Based Data (no database)
-JSON for layout configs, CSV for simulation results export.
-- **Why**: No server, no multi-user. Engineers can share configs via file transfer.
-- **Trade-off**: No query capability, no versioning. Acceptable at this stage.
+**Decision**: Use `(edgeId, ratio: 0.0~1.0)` as the canonical position model.
 
-## Consequences
+**Why**:
+- Proven at scale in VOS (1000+ OHTs)
+- Natural for rail-constrained movement
+- Efficient: no continuous XYZ tracking, just ratio advancement
+- 3D position derived via edge curve interpolation at render time
 
-### Easier
-- Deployment (static hosting on Vercel)
-- Development (no backend to maintain)
-- Offline use
-- Sharing (export/import JSON configs)
+### 3. CSV Import as Foundation
 
-### Harder
-- Scaling beyond client hardware limits (future: optional server-side worker)
-- Multi-user collaboration (future: add backend if needed)
-- Data persistence across sessions (relies on file save/load)
+**Decision**: Start with VOS CSV format (node.map, edge.map, station.map) as the import format, build internal model from it.
 
-## Alternatives Considered
+**Why**:
+- Immediate compatibility with existing VOS map data (3249 nodes, 3929 edges)
+- Proven data model — no need to reinvent the schema
+- Map editor will work on internal model, export back to CSV
 
-| Alternative | Reason Rejected |
-|-------------|-----------------|
-| Python backend (FastAPI + SimPy) | Adds server complexity; simulation scale is manageable in browser with Web Workers |
-| Babylon.js | Heavier, less React integration, higher learning curve for team |
-| Electron desktop app | Limits distribution; web-based is more accessible |
-| ECS pattern for sim engine | Over-engineering for current scale; DES is simpler and well-proven for logistics simulation |
-| PostgreSQL | No multi-user need; file-based is simpler |
+### 4. shadcn/ui over Ant Design
+
+**Decision**: Use shadcn/ui instead of Ant Design (used by VOS).
+
+**Why**:
+- Tailwind-native, no CSS-in-JS overhead
+- Fully customizable — own the component code
+- Modern dark theme out of the box
+- Smaller bundle size
+- Better fit for modern dashboard aesthetic
+
+### 5. ECharts for Data Visualization
+
+**Decision**: Use ECharts for charts and data visualization.
+
+**Why**:
+- Canvas-based rendering handles large datasets (15000+ transfers/hour)
+- Rich chart types: line, bar, heatmap, scatter, treemap
+- Proven in VOS for the same domain
+- Better performance than SVG-based alternatives at scale
+
+### 6. AG Grid for Data Tables
+
+**Decision**: Use AG Grid for tabular data (transfer logs, edge lists, etc.).
+
+**Why**:
+- Industry standard for large datasets
+- Virtual scrolling, filtering, sorting out of the box
+- Already proven in VOS
+- Export capabilities (CSV, Excel)
+
+### 7. Internal Simulation Engine (no MQTT)
+
+**Decision**: Implement routing, dispatching, and collision logic directly in TypeScript, running in a Web Worker.
+
+**Why**:
+- Eliminates MQTT latency and deadlock issues at scale
+- Enables true speed control (impossible with external VCU)
+- Single deployment — no server dependencies
+- VCU's Dijkstra routing and sensor-based collision can be ported to TypeScript
+
+### 8. Approach: Bottom-Up Incremental
+
+**Decision**: Build from CSV import -> 3D rendering -> OHT movement -> editor -> statistics.
+
+**Why**:
+- Each milestone produces a working, demonstrable result
+- Validates VOS+VCU merger concept early
+- Avoids scope explosion from parallel feature development
+- Maintains motivation through frequent completion milestones
