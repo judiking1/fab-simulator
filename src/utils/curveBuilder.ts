@@ -66,10 +66,30 @@ export function buildRailCurve(params: BuildRailCurveParams): CatmullRomCurve3 {
 	const originTo = new Vector3(rail.originTo.x, rail.originTo.y, rail.originTo.z);
 
 	// Build the three-segment path: FLE + Curve + TLE
+	// VOS distributes 500 total points proportionally based on fle/ole/tle lengths.
+	// With only 2 FLE points, CatmullRomCurve3 (tension=0.5) creates unwanted curvature
+	// at the FLE→curve junction. Proportional distribution yields 48+ FLE points for
+	// typical values, producing smooth straight-to-curve transitions.
+	const TOTAL_SEGMENTS = 500;
+	let fleSegments: number;
+	let oleSegments: number;
+	let tleSegments: number;
+
+	const segmentLengthSum = rail.fle + rail.tle + rail.ole;
+	if (segmentLengthSum > 0) {
+		fleSegments = Math.max(2, Math.round((rail.fle / segmentLengthSum) * TOTAL_SEGMENTS));
+		oleSegments = Math.max(10, Math.round((rail.ole / segmentLengthSum) * TOTAL_SEGMENTS));
+		tleSegments = Math.max(2, TOTAL_SEGMENTS - fleSegments - oleSegments);
+	} else {
+		// Fallback for missing fle/tle/ole
+		fleSegments = 2;
+		oleSegments = 100;
+		tleSegments = 2;
+	}
+
 	const allPoints: Vector3[] = [];
 
 	// Segment 1: FLE — straight from fromNode to originFrom
-	const fleSegments = 2;
 	for (let i = 0; i <= fleSegments; i++) {
 		const t = i / fleSegments;
 		allPoints.push(new Vector3().lerpVectors(fromPos, originFrom, t));
@@ -80,19 +100,19 @@ export function buildRailCurve(params: BuildRailCurveParams): CatmullRomCurve3 {
 
 	switch (rail.railType) {
 		case RAIL_TYPE.CURVE:
-			curvePoints = buildSemicirclePoints(originFrom, originTo);
+			curvePoints = buildSemicirclePoints(originFrom, originTo, oleSegments);
 			break;
 		case RAIL_TYPE.LEFT_CURVE:
-			curvePoints = buildLeftCurvePoints(originFrom, originTo);
+			curvePoints = buildLeftCurvePoints(originFrom, originTo, 0.7, oleSegments);
 			break;
 		case RAIL_TYPE.RIGHT_CURVE:
-			curvePoints = buildRightCurvePoints(originFrom, originTo);
+			curvePoints = buildRightCurvePoints(originFrom, originTo, 0.7, oleSegments);
 			break;
 		case RAIL_TYPE.S_CURVE:
-			curvePoints = buildSCurvePoints(originFrom, originTo);
+			curvePoints = buildSCurvePoints(originFrom, originTo, 0.5, 43, oleSegments);
 			break;
 		case RAIL_TYPE.CSC_CURVE_HOMO:
-			curvePoints = buildCSCHomoPoints(originFrom, originTo);
+			curvePoints = buildCSCHomoPoints(originFrom, originTo, 0.5, oleSegments);
 			break;
 		default:
 			curvePoints = [originFrom.clone(), originTo.clone()];
@@ -105,7 +125,6 @@ export function buildRailCurve(params: BuildRailCurveParams): CatmullRomCurve3 {
 	}
 
 	// Segment 3: TLE — straight from originTo to toNode
-	const tleSegments = 2;
 	for (let i = 1; i <= tleSegments; i++) {
 		const t = i / tleSegments;
 		allPoints.push(new Vector3().lerpVectors(originTo, toPos, t));
