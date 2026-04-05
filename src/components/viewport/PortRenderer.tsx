@@ -24,7 +24,12 @@ import {
 import { EQUIPMENT_TYPE, type EquipmentType } from "@/models/port";
 import { selectPortCount, useMapStore } from "@/stores/mapStore";
 import { buildRailCurve } from "@/utils/curveBuilder";
-import { type CachedCurveData, cacheCurve, getPositionAtRatio } from "@/utils/curveCache";
+import {
+	type CachedCurveData,
+	cacheCurve,
+	getPositionAtRatio,
+	getQuaternionAtRatio,
+} from "@/utils/curveCache";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -36,12 +41,18 @@ const PORT_COLORS: Record<EquipmentType, Color> = {
 	[EQUIPMENT_TYPE.OHB]: new Color("#fb923c"),
 };
 
-/** Lateral offset (perpendicular to rail) for left/right side ports */
-const SIDE_OFFSET = 1.0;
+/** Lateral offset (perpendicular to rail tangent) — matches VOS value */
+const LATERAL_OFFSET = 0.485;
+
+// Per-type box scales (visual distinction)
+const SCALE_EQ = new Vector3(0.5, 0.3, 0.5);
+const SCALE_STK = new Vector3(0.35, 0.04, 0.35);
+const SCALE_OHB = new Vector3(0.5, 0.1, 0.5);
 
 // Module-scoped temporaries
 const _position = new Vector3();
-const _scale = new Vector3(0.5, 0.3, 0.5);
+const _forward = new Vector3();
+const _perpendicular = new Vector3();
 const _quaternion = new Quaternion();
 const _matrix = new Matrix4();
 
@@ -106,7 +117,7 @@ export function PortRenderer(): React.JSX.Element {
 			const fromPos = new Vector3(fromNode.x, fromNode.y, fromNode.z);
 			const toPos = new Vector3(toNode.x, toNode.y, toNode.z);
 
-			const curve = buildRailCurve({ rail, fromPos, toPos });
+			const curve = buildRailCurve({ rail, fromPos, toPos, nodePositions: nodes });
 
 			curveCache.set(rail.id, cacheCurve(curve));
 		}
@@ -175,7 +186,7 @@ export function PortRenderer(): React.JSX.Element {
 			const fromPos = new Vector3(fromNode.x, fromNode.y, fromNode.z);
 			const toPos = new Vector3(toNode.x, toNode.y, toNode.z);
 
-			const curve = buildRailCurve({ rail, fromPos, toPos });
+			const curve = buildRailCurve({ rail, fromPos, toPos, nodePositions: nodes });
 
 			curveCache.set(rail.id, cacheCurve(curve));
 		}
@@ -288,6 +299,11 @@ function updateDirtyInstances(
 
 /**
  * Compute the transform matrix for a port. Writes into module-scoped _matrix.
+ *
+ * Applies VOS-compatible offsets:
+ *   - Height (Y) offset by equipment type: EQ=0, STK=-1.0, OHB=-0.95
+ *   - Lateral offset perpendicular to rail tangent: left=+0.485, right=-0.485
+ *   - Overhead: no lateral offset, Y -= 0.3
  */
 function computePortMatrix(
 	port: import("@/models/port").PortData,
@@ -299,21 +315,52 @@ function computePortMatrix(
 		const pos = getPositionAtRatio(cached, port.ratio);
 		_position.copy(pos);
 
-		// Apply lateral offset based on port.side
-		// For a proper offset we'd need the rail tangent, but for M1A
-		// we use a simple Y offset for overhead, and X/Z offset for left/right
-		if (port.side === "left") {
-			_position.x -= SIDE_OFFSET;
-		} else if (port.side === "right") {
-			_position.x += SIDE_OFFSET;
-		} else {
-			// overhead — shift slightly upward
-			_position.y += SIDE_OFFSET * 0.5;
+		// Height offset by equipment type
+		switch (port.equipmentType) {
+			case "STK":
+				_position.y -= 1.0;
+				break;
+			case "OHB":
+				_position.y -= 0.95;
+				break;
+			// EQ: no Y offset
+		}
+
+		// Lateral offset using rail tangent direction
+		const quat = getQuaternionAtRatio(cached, port.ratio);
+		_forward.set(1, 0, 0).applyQuaternion(quat);
+		// Perpendicular in XZ plane (90° rotation)
+		_perpendicular.set(-_forward.z, 0, _forward.x);
+
+		switch (port.side) {
+			case "left":
+				_position.addScaledVector(_perpendicular, LATERAL_OFFSET);
+				break;
+			case "right":
+				_position.addScaledVector(_perpendicular, -LATERAL_OFFSET);
+				break;
+			case "overhead":
+				_position.y -= 0.3;
+				break;
 		}
 	} else {
 		_position.set(0, 0, 0);
 	}
 
+	// Select scale based on equipment type
+	let scale: Vector3;
+	switch (port.equipmentType) {
+		case "STK":
+			scale = SCALE_STK;
+			break;
+		case "OHB":
+			scale = SCALE_OHB;
+			break;
+		default:
+			scale = SCALE_EQ;
+			break;
+	}
+
 	_quaternion.identity();
-	_matrix.compose(_position, _quaternion, _scale);
+	_matrix.compose(_position, _quaternion, scale);
 }

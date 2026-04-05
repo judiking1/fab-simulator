@@ -1,217 +1,295 @@
 /**
- * useMapImporter — Hook for importing VOS .map CSV files.
+ * useMapImporter — Step-by-step VOS .map file importer.
  *
- * Handles file selection, content detection (node/edge/station),
- * parsing via importVosMap(), and loading into the map store.
+ * Enforces dependency order: Nodes -> Rails -> Ports.
+ * Each step is a separate file input with its own parse function.
+ * Intermediate state (barcodeMap, barcodeLookup) is held in refs
+ * between steps for port barcode resolution.
  */
 
 import { useCallback, useRef, useState } from "react";
-import { importVosMap } from "@/parsers/vosImportAdapter";
+import type { BayData } from "@/models/bay";
+import type { FabMapFile } from "@/models/map";
+import type { NodeData } from "@/models/node";
+import type { PortData } from "@/models/port";
+import type { RailData } from "@/models/rail";
+import {
+	type BarcodeEntry,
+	parseVosEdgeMap,
+	parseVosNodeMap,
+	parseVosStationMap,
+} from "@/parsers/vosImportAdapter";
 import { useMapStore } from "@/stores/mapStore";
 
 // ---------------------------------------------------------------------------
-// File detection — identify which CSV file is which by column headers
+// State
 // ---------------------------------------------------------------------------
 
-type VosFileType = "node" | "edge" | "station";
-
-/**
- * Detect VOS file type by scanning for the header row.
- * VOS .map files start with comment lines (# ...) before the actual CSV header.
- */
-function detectFileType(content: string): VosFileType | null {
-	const lines = content.split("\n");
-
-	for (const line of lines) {
-		const trimmed = line.trim().toLowerCase();
-
-		// Skip empty lines and comment lines
-		if (trimmed === "" || trimmed.startsWith("#") || trimmed.startsWith("//")) {
-			continue;
-		}
-
-		// First non-comment line is the header.
-		// IMPORTANT: Check station_name BEFORE rail_name because
-		// station.map headers contain both "station_name" and "rail_name" columns.
-		if (trimmed.includes("station_name")) return "station";
-		if (trimmed.includes("node_name")) return "node";
-		if (trimmed.includes("rail_name")) return "edge";
-
-		// First non-comment line didn't match any known header
-		return null;
-	}
-
-	return null;
-}
-
-// ---------------------------------------------------------------------------
-// Hook state
-// ---------------------------------------------------------------------------
-
-interface MapImporterState {
+interface ImportStepState {
+	nodesLoaded: boolean;
+	railsLoaded: boolean;
+	portsLoaded: boolean;
+	nodeCount: number;
+	railCount: number;
+	portCount: number;
+	bayCount: number;
 	isLoading: boolean;
 	error: string | null;
-	/** Name of the last successfully loaded map */
-	loadedMapName: string | null;
 }
 
-interface MapImporterActions {
-	/** Ref to attach to a hidden <input type="file"> */
-	fileInputRef: React.RefObject<HTMLInputElement | null>;
-	/** Trigger the file picker dialog */
-	openFilePicker: () => void;
-	/** Handle file input change event */
-	handleFiles: (e: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
-	/** Clear error state */
+interface ImportActions {
+	importNodes: (file: File) => Promise<void>;
+	importRails: (file: File) => Promise<void>;
+	importPorts: (file: File) => Promise<void>;
+	clearImport: () => void;
 	clearError: () => void;
 }
 
-type UseMapImporterReturn = MapImporterState & MapImporterActions;
+export type UseMapImporterReturn = ImportStepState & ImportActions;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function readFileAsText(file: File): Promise<string> {
+	return new Promise((resolve, reject) => {
+		const reader = new FileReader();
+		reader.onload = (): void => {
+			resolve(reader.result as string);
+		};
+		reader.onerror = (): void => {
+			reject(new Error(`Failed to read file: ${file.name}`));
+		};
+		reader.readAsText(file);
+	});
+}
 
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
 
-export function useMapImporter(): UseMapImporterReturn {
-	const [isLoading, setIsLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-	const [loadedMapName, setLoadedMapName] = useState<string | null>(null);
-	const fileInputRef = useRef<HTMLInputElement | null>(null);
+const INITIAL_STATE: ImportStepState = {
+	nodesLoaded: false,
+	railsLoaded: false,
+	portsLoaded: false,
+	nodeCount: 0,
+	railCount: 0,
+	portCount: 0,
+	bayCount: 0,
+	isLoading: false,
+	error: null,
+};
 
-	const openFilePicker = useCallback((): void => {
-		fileInputRef.current?.click();
+export function useMapImporter(): UseMapImporterReturn {
+	const [state, setState] = useState<ImportStepState>(INITIAL_STATE);
+
+	// Intermediate data held between steps (not in React state — no re-render needed)
+	const nodesRef = useRef<Record<string, NodeData>>({});
+	const railsRef = useRef<Record<string, RailData>>({});
+	const portsRef = useRef<Record<string, PortData>>({});
+	const baysRef = useRef<Record<string, BayData>>({});
+	const barcodeMapRef = useRef<BarcodeEntry[]>([]);
+	const barcodeLookupRef = useRef<Record<string, number>>({});
+
+	/** Push accumulated data to the map store. */
+	const syncToStore = useCallback((): void => {
+		const now = new Date().toISOString();
+		const map: FabMapFile = {
+			version: "1.0.0",
+			metadata: {
+				name: "VOS Import",
+				author: "VOS Import Adapter",
+				createdAt: now,
+				updatedAt: now,
+				description: "Imported from VOS .map CSV files",
+			},
+			nodes: nodesRef.current,
+			rails: railsRef.current,
+			ports: portsRef.current,
+			bays: baysRef.current,
+		};
+		useMapStore.getState().loadMap(map);
+	}, []);
+
+	// -----------------------------------------------------------------------
+	// Step 1: Import Nodes
+	// -----------------------------------------------------------------------
+
+	const importNodes = useCallback(
+		async (file: File): Promise<void> => {
+			setState((prev) => ({ ...prev, isLoading: true, error: null }));
+			try {
+				const csvText = await readFileAsText(file);
+				const result = parseVosNodeMap(csvText);
+
+				const count = Object.keys(result.nodes).length;
+				if (count === 0) {
+					throw new Error("No valid nodes found. Check file format (expected header: node_name).");
+				}
+
+				// Store intermediate data
+				nodesRef.current = result.nodes;
+				barcodeMapRef.current = result.barcodeMap;
+				barcodeLookupRef.current = result.barcodeLookup;
+
+				// Reset downstream data when re-importing nodes
+				railsRef.current = {};
+				portsRef.current = {};
+				baysRef.current = {};
+
+				if (result.warnings.skippedRows.length > 0) {
+					console.warn("[useMapImporter] Node warnings:", result.warnings.skippedRows);
+				}
+
+				syncToStore();
+
+				setState({
+					nodesLoaded: true,
+					railsLoaded: false,
+					portsLoaded: false,
+					nodeCount: count,
+					railCount: 0,
+					portCount: 0,
+					bayCount: 0,
+					isLoading: false,
+					error: null,
+				});
+
+				console.log(`[useMapImporter] Nodes imported: ${count}`);
+			} catch (err: unknown) {
+				const message = err instanceof Error ? err.message : "Unknown error importing nodes";
+				console.error("[useMapImporter] Node import failed:", err);
+				setState((prev) => ({ ...prev, isLoading: false, error: message }));
+			}
+		},
+		[syncToStore],
+	);
+
+	// -----------------------------------------------------------------------
+	// Step 2: Import Rails
+	// -----------------------------------------------------------------------
+
+	const importRails = useCallback(
+		async (file: File): Promise<void> => {
+			setState((prev) => ({ ...prev, isLoading: true, error: null }));
+			try {
+				const csvText = await readFileAsText(file);
+				const result = parseVosEdgeMap(csvText, nodesRef.current);
+
+				const railCount = Object.keys(result.rails).length;
+				const bayCount = Object.keys(result.bays).length;
+				if (railCount === 0) {
+					throw new Error("No valid rails found. Check file format (expected header: rail_name).");
+				}
+
+				// Store intermediate data
+				railsRef.current = result.rails;
+				baysRef.current = result.bays;
+
+				// Reset downstream data when re-importing rails
+				portsRef.current = {};
+
+				if (result.warnings.skippedRows.length > 0) {
+					console.warn("[useMapImporter] Rail warnings:", result.warnings.skippedRows);
+				}
+
+				syncToStore();
+
+				setState((prev) => ({
+					...prev,
+					railsLoaded: true,
+					portsLoaded: false,
+					railCount,
+					bayCount,
+					portCount: 0,
+					isLoading: false,
+					error: null,
+				}));
+
+				console.log(`[useMapImporter] Rails imported: ${railCount}, Bays: ${bayCount}`);
+			} catch (err: unknown) {
+				const message = err instanceof Error ? err.message : "Unknown error importing rails";
+				console.error("[useMapImporter] Rail import failed:", err);
+				setState((prev) => ({ ...prev, isLoading: false, error: message }));
+			}
+		},
+		[syncToStore],
+	);
+
+	// -----------------------------------------------------------------------
+	// Step 3: Import Ports
+	// -----------------------------------------------------------------------
+
+	const importPorts = useCallback(
+		async (file: File): Promise<void> => {
+			setState((prev) => ({ ...prev, isLoading: true, error: null }));
+			try {
+				const csvText = await readFileAsText(file);
+				const result = parseVosStationMap(
+					csvText,
+					railsRef.current,
+					barcodeMapRef.current,
+					barcodeLookupRef.current,
+				);
+
+				const count = Object.keys(result.ports).length;
+				if (count === 0) {
+					throw new Error(
+						"No valid ports found. Check file format (expected header: station_name).",
+					);
+				}
+
+				portsRef.current = result.ports;
+
+				if (result.warnings.skippedRows.length > 0) {
+					console.warn("[useMapImporter] Port warnings:", result.warnings.skippedRows);
+				}
+
+				syncToStore();
+
+				setState((prev) => ({
+					...prev,
+					portsLoaded: true,
+					portCount: count,
+					isLoading: false,
+					error: null,
+				}));
+
+				console.log(`[useMapImporter] Ports imported: ${count}`);
+			} catch (err: unknown) {
+				const message = err instanceof Error ? err.message : "Unknown error importing ports";
+				console.error("[useMapImporter] Port import failed:", err);
+				setState((prev) => ({ ...prev, isLoading: false, error: message }));
+			}
+		},
+		[syncToStore],
+	);
+
+	// -----------------------------------------------------------------------
+	// Clear all
+	// -----------------------------------------------------------------------
+
+	const clearImport = useCallback((): void => {
+		nodesRef.current = {};
+		railsRef.current = {};
+		portsRef.current = {};
+		baysRef.current = {};
+		barcodeMapRef.current = [];
+		barcodeLookupRef.current = {};
+		useMapStore.getState().clearMap();
+		setState(INITIAL_STATE);
 	}, []);
 
 	const clearError = useCallback((): void => {
-		setError(null);
-	}, []);
-
-	const handleFiles = useCallback(async (e: React.ChangeEvent<HTMLInputElement>): Promise<void> => {
-		const files = e.target.files;
-		if (!files || files.length === 0) return;
-
-		setIsLoading(true);
-		setError(null);
-
-		try {
-			console.log(`[useMapImporter] Reading ${files.length} file(s)...`);
-
-			// Read all selected files
-			const fileContents = await Promise.all(
-				Array.from(files).map(
-					(file) =>
-						new Promise<{ name: string; content: string }>((resolve, reject) => {
-							const reader = new FileReader();
-							reader.onload = (): void => {
-								resolve({ name: file.name, content: reader.result as string });
-							};
-							reader.onerror = (): void => {
-								reject(new Error(`Failed to read file: ${file.name}`));
-							};
-							reader.readAsText(file);
-						}),
-				),
-			);
-
-			// Detect file types
-			let nodeCsv: string | null = null;
-			let edgeCsv: string | null = null;
-			let stationCsv: string | null = null;
-
-			const undetected: string[] = [];
-			for (const { name, content } of fileContents) {
-				const type = detectFileType(content);
-				if (type === "node") {
-					nodeCsv = content;
-				} else if (type === "edge") {
-					edgeCsv = content;
-				} else if (type === "station") {
-					stationCsv = content;
-				} else {
-					undetected.push(name);
-				}
-			}
-
-			if (undetected.length > 0) {
-				console.warn(
-					`[useMapImporter] Could not detect file type for: ${undetected.join(", ")}. ` +
-						"Expected VOS .map files with headers containing node_name, rail_name, or station_name.",
-				);
-			}
-
-			console.log("[useMapImporter] Detection results:", {
-				node: nodeCsv ? "found" : "missing",
-				edge: edgeCsv ? "found" : "missing",
-				station: stationCsv ? "found" : "missing",
-				undetected,
-			});
-
-			// Validate all three files are present
-			if (!nodeCsv || !edgeCsv || !stationCsv) {
-				const missing: string[] = [];
-				if (!nodeCsv) missing.push("node.map (header: node_name)");
-				if (!edgeCsv) missing.push("edge.map (header: rail_name)");
-				if (!stationCsv) missing.push("station.map (header: station_name)");
-				const msg = `Missing files: ${missing.join(", ")}. Please select all 3 VOS map files.`;
-				console.error("[useMapImporter]", msg);
-				setError(msg);
-				return;
-			}
-
-			console.log("[useMapImporter] Parsing VOS map data...");
-
-			// Parse and import
-			const result = importVosMap(nodeCsv, edgeCsv, stationCsv);
-
-			// Load into store
-			useMapStore.getState().loadMap(result.map);
-
-			// Log stats for debugging
-			const nodeCount = Object.keys(result.map.nodes).length;
-			const railCount = Object.keys(result.map.rails).length;
-			const portCount = Object.keys(result.map.ports).length;
-			const bayCount = Object.keys(result.map.bays).length;
-
-			console.log("[useMapImporter] Import complete:", {
-				nodes: nodeCount,
-				rails: railCount,
-				ports: portCount,
-				bays: bayCount,
-			});
-
-			// Log warnings if any
-			const { nodes: nw, edges: ew, stations: sw } = result.warnings;
-			if (nw.skippedRows.length > 0) {
-				console.warn("[useMapImporter] Node warnings:", nw.skippedRows);
-			}
-			if (ew.skippedRows.length > 0) {
-				console.warn("[useMapImporter] Edge warnings:", ew.skippedRows);
-			}
-			if (sw.skippedRows.length > 0) {
-				console.warn("[useMapImporter] Station warnings:", sw.skippedRows);
-			}
-
-			setLoadedMapName(result.map.metadata.name);
-		} catch (err: unknown) {
-			const message = err instanceof Error ? err.message : "Unknown import error";
-			console.error("[useMapImporter] Import failed:", err);
-			setError(message);
-		} finally {
-			setIsLoading(false);
-			// Reset input so the same files can be re-imported
-			if (e.target) {
-				e.target.value = "";
-			}
-		}
+		setState((prev) => ({ ...prev, error: null }));
 	}, []);
 
 	return {
-		isLoading,
-		error,
-		loadedMapName,
-		fileInputRef,
-		openFilePicker,
-		handleFiles,
+		...state,
+		importNodes,
+		importRails,
+		importPorts,
+		clearImport,
 		clearError,
 	};
 }

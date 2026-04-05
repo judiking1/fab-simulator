@@ -64,7 +64,7 @@ export interface VosImportResult {
 }
 
 /** A single barcode entry for binary search. */
-interface BarcodeEntry {
+export interface BarcodeEntry {
 	nodeId: string;
 	barcode: number;
 }
@@ -289,8 +289,7 @@ export function parseVosEdgeMap(csvText: string, nodes: Record<string, NodeData>
 		}
 
 		// Parse origin coordinates (VOS axis swap: origin_from_z → Y, origin_from_y → Z)
-		const hasOrigin =
-			row["origin_from_x"] !== undefined && row["origin_from_x"] !== "";
+		const hasOrigin = row["origin_from_x"] !== undefined && row["origin_from_x"] !== "";
 		const originFrom = hasOrigin
 			? {
 					x: safeParseFloat(row["origin_from_x"], 0),

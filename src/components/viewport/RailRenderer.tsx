@@ -104,7 +104,7 @@ export function RailRenderer(): React.JSX.Element | null {
 			const fromPos = new Vector3(fromNode.x, fromNode.y, fromNode.z);
 			const toPos = new Vector3(toNode.x, toNode.y, toNode.z);
 
-			const curve = buildRailCurve({ rail, fromPos, toPos });
+			const curve = buildRailCurve({ rail, fromPos, toPos, nodePositions: nodes });
 
 			const curveData = cacheCurve(curve);
 			const segCount = getSegmentCount(rail.railType, curveData.length);
@@ -179,7 +179,7 @@ export function RailRenderer(): React.JSX.Element | null {
 			const fromPos = new Vector3(fromNode.x, fromNode.y, fromNode.z);
 			const toPos = new Vector3(toNode.x, toNode.y, toNode.z);
 
-			const curve = buildRailCurve({ rail, fromPos, toPos });
+			const curve = buildRailCurve({ rail, fromPos, toPos, nodePositions: nodes });
 
 			const curveData = cacheCurve(curve);
 			const segCount = getSegmentCount(rail.railType, curveData.length);

@@ -51,9 +51,7 @@ export function LeftPanel(): React.JSX.Element | null {
 
 					<div className="flex-1 overflow-y-auto p-3">
 						{!hasMap ? (
-							<p className="text-xs text-[var(--color-text-secondary)]">
-								No map loaded.
-							</p>
+							<p className="text-xs text-[var(--color-text-secondary)]">No map loaded.</p>
 						) : (
 							<>
 								<div className="mb-4 text-xs">
