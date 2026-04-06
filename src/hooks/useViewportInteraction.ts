@@ -25,6 +25,8 @@ import { useMapStore } from "@/stores/mapStore";
 import { useUiStore } from "@/stores/uiStore";
 import {
 	endDrag,
+	getDragOffset,
+	getStartPositions,
 	startDrag,
 	updateDragOffset,
 } from "@/systems/dragPreview";
@@ -255,11 +257,12 @@ export function useViewportInteraction(): void {
 					uiState.clearSelection();
 				}
 			} else if (state === "DRAGGING") {
-				// Commit drag to store
-				const { startPositions, offsetX, offsetZ } = endDrag();
+				// Commit drag: apply store FIRST, then end drag preview
+				// (prevents ghost frame where both dragPreview and store are stale)
+				const startPositions = getStartPositions();
+				const { x: offsetX, z: offsetZ } = getDragOffset();
 
 				if (startPositions.size > 0 && (Math.abs(offsetX) > 0.001 || Math.abs(offsetZ) > 0.001)) {
-					// Build before/after for undo
 					const before = new Map<string, { x: number; z: number }>();
 					const after = new Map<string, { x: number; z: number }>();
 					for (const [id, pos] of startPositions) {
@@ -267,7 +270,7 @@ export function useViewportInteraction(): void {
 						after.set(id, { x: pos.x + offsetX, z: pos.z + offsetZ });
 					}
 
-					// Apply to store
+					// Apply to store FIRST
 					const updates = [...after].map(([id, pos]) => ({
 						id,
 						changes: { x: pos.x, z: pos.z },
@@ -294,6 +297,8 @@ export function useViewportInteraction(): void {
 					});
 				}
 
+				// End drag preview AFTER store is updated
+				endDrag();
 				setCursor("default");
 			} else if (state === "RUBBER_BAND") {
 				const rubberBand = useUiStore.getState().rubberBand;
