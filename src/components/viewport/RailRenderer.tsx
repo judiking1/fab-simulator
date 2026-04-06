@@ -1,13 +1,13 @@
 /**
- * RailRenderer — Renders all rails using a single InstancedMesh (Layer 3).
+ * RailRenderer — Renders all rails as dual-track parallel lines (Layer 3).
  *
  * 3-Layer architecture (ADR-003):
  *   Layer 1: Zustand store (selectRailCount triggers React re-render on add/delete)
  *   Layer 2: Geometry cache (ref-based, rebuilt on dirty rails)
- *   Layer 3: InstancedMesh (imperative setMatrixAt in useFrame)
+ *   Layer 3: TWO InstancedMeshes (left track + right track)
  *
- * Each rail is subdivided into segments. Each segment becomes one instance
- * of a PlaneGeometry(1, 1) stretched and oriented via its transform matrix.
+ * Each rail is subdivided into segments. Each segment produces TWO instances
+ * (one per track), offset perpendicular to the rail direction.
  */
 
 import { useFrame } from "@react-three/fiber";
@@ -23,6 +23,7 @@ import {
 	Vector3,
 } from "three";
 import { selectRailCount, useMapStore } from "@/stores/mapStore";
+import { registerMesh } from "@/systems/instanceRegistry";
 import { buildRailCurve } from "@/utils/curveBuilder";
 import type { CachedCurveData } from "@/utils/curveCache";
 import { cacheCurve } from "@/utils/curveCache";
@@ -32,9 +33,11 @@ import { buildRailSoA, getSegmentCount, type RailSegmentSoA } from "@/utils/rail
 // Constants
 // ---------------------------------------------------------------------------
 
-const RAIL_COLOR = new Color("#06b6d4");
-const RAIL_WIDTH = 0.3;
+const RAIL_COLOR = new Color("#2563eb");
+const TRACK_WIDTH = 0.06;
+const TRACK_OFFSET = 0.15;
 const FORWARD = new Vector3(1, 0, 0); // Base direction of PlaneGeometry
+const UP_VECTOR = new Vector3(0, 1, 0);
 
 // ---------------------------------------------------------------------------
 // Module-scoped temporaries (avoid per-frame allocation)
@@ -42,6 +45,8 @@ const FORWARD = new Vector3(1, 0, 0); // Base direction of PlaneGeometry
 
 const _position = new Vector3();
 const _direction = new Vector3();
+const _perpendicular = new Vector3();
+const _trackPos = new Vector3();
 const _scale = new Vector3();
 const _quaternion = new Quaternion();
 const _matrix = new Matrix4();
@@ -67,7 +72,8 @@ export function RailRenderer(): React.JSX.Element | null {
 
 	// Layer 2: geometry cache (ref-based, outside React render cycle)
 	const geometryCacheRef = useRef<Map<string, RailGeometryEntry>>(new Map());
-	const meshRef = useRef<InstancedMesh>(null);
+	const leftMeshRef = useRef<InstancedMesh>(null);
+	const rightMeshRef = useRef<InstancedMesh>(null);
 	const totalSegmentsRef = useRef(0);
 
 	// Shared geometry and material (reused across rebuilds)
@@ -123,20 +129,31 @@ export function RailRenderer(): React.JSX.Element | null {
 		geometryCacheRef.current = cache;
 		totalSegmentsRef.current = totalSegments;
 
-		// Pass 2: write all matrices into InstancedMesh
-		const mesh = meshRef.current;
-		if (!mesh) return;
+		// Pass 2: write all matrices into both InstancedMeshes
+		const leftMesh = leftMeshRef.current;
+		const rightMesh = rightMeshRef.current;
+		if (!leftMesh || !rightMesh) return;
 
-		// Resize instance count if needed
-		if (mesh.count !== totalSegments) {
-			mesh.count = totalSegments;
-		}
+		leftMesh.count = totalSegments;
+		rightMesh.count = totalSegments;
 
 		for (const entry of cache.values()) {
-			writeSegmentMatrices(mesh, entry);
+			writeSegmentMatrices(leftMesh, rightMesh, entry);
 		}
 
-		mesh.instanceMatrix.needsUpdate = true;
+		leftMesh.instanceMatrix.needsUpdate = true;
+		rightMesh.instanceMatrix.needsUpdate = true;
+
+		// Register with instance registry for raycasting
+		// Build segment-index → railId mapping
+		const segmentToRailId: string[] = [];
+		for (const [railId, entry] of cache) {
+			for (let i = 0; i < entry.soa.count; i++) {
+				segmentToRailId[entry.soaStartIndex + i] = railId;
+			}
+		}
+		registerMesh(leftMesh.uuid, "rail", segmentToRailId);
+		registerMesh(rightMesh.uuid, "rail", segmentToRailId);
 	}, []);
 
 	// Full rebuild when rail count changes (add/delete rail).
@@ -153,8 +170,9 @@ export function RailRenderer(): React.JSX.Element | null {
 		const dirtyRailIds = useMapStore.getState().consumeDirtyRails();
 		if (dirtyRailIds.length === 0) return;
 
-		const mesh = meshRef.current;
-		if (!mesh) return;
+		const leftMesh = leftMeshRef.current;
+		const rightMesh = rightMeshRef.current;
+		if (!leftMesh || !rightMesh) return;
 
 		const { nodes, rails } = useMapStore.getState();
 		const cache = geometryCacheRef.current;
@@ -167,7 +185,6 @@ export function RailRenderer(): React.JSX.Element | null {
 			const existing = cache.get(railId);
 
 			if (!rail || !existing) {
-				// Rail was added or removed — need full rebuild
 				needsFullRebuild = true;
 				break;
 			}
@@ -185,7 +202,6 @@ export function RailRenderer(): React.JSX.Element | null {
 			const segCount = getSegmentCount(rail.railType, curveData.length);
 
 			if (segCount !== existing.soa.count) {
-				// Segment count changed — need full rebuild to reindex
 				needsFullRebuild = true;
 				break;
 			}
@@ -196,7 +212,7 @@ export function RailRenderer(): React.JSX.Element | null {
 			existing.curveCache = curveData;
 			existing.soa = soa;
 
-			writeSegmentMatrices(mesh, existing);
+			writeSegmentMatrices(leftMesh, rightMesh, existing);
 		}
 
 		if (needsFullRebuild) {
@@ -204,19 +220,28 @@ export function RailRenderer(): React.JSX.Element | null {
 			return;
 		}
 
-		mesh.instanceMatrix.needsUpdate = true;
+		leftMesh.instanceMatrix.needsUpdate = true;
+		rightMesh.instanceMatrix.needsUpdate = true;
 	});
 
 	// Max instance count — generous upper bound for dynamic resizing
 	const maxInstances = Math.max(railCount * 100, 1);
 
 	return (
-		<instancedMesh
-			ref={meshRef}
-			args={[geometry, material, maxInstances]}
-			frustumCulled={false}
-			count={0}
-		/>
+		<>
+			<instancedMesh
+				ref={leftMeshRef}
+				args={[geometry, material, maxInstances]}
+				frustumCulled={false}
+				count={0}
+			/>
+			<instancedMesh
+				ref={rightMeshRef}
+				args={[geometry, material, maxInstances]}
+				frustumCulled={false}
+				count={0}
+			/>
+		</>
 	);
 }
 
@@ -225,25 +250,43 @@ export function RailRenderer(): React.JSX.Element | null {
 // ---------------------------------------------------------------------------
 
 /**
- * Write segment matrices from a rail's SoA data into the InstancedMesh.
+ * Write segment matrices from a rail's SoA data into BOTH InstancedMeshes.
+ * Each segment produces two instances: left track and right track,
+ * offset perpendicular to the rail direction.
  */
-function writeSegmentMatrices(mesh: InstancedMesh, entry: RailGeometryEntry): void {
+function writeSegmentMatrices(
+	leftMesh: InstancedMesh,
+	rightMesh: InstancedMesh,
+	entry: RailGeometryEntry,
+): void {
 	const { soa, soaStartIndex } = entry;
 
 	for (let i = 0; i < soa.count; i++) {
 		const o3 = i * 3;
 
-		// Position (midpoint of segment)
+		// Center position (midpoint of segment)
 		_position.set(soa.positions[o3], soa.positions[o3 + 1], soa.positions[o3 + 2]);
 
-		// Direction → quaternion (rotate from FORWARD to segment direction)
+		// Direction → quaternion
 		_direction.set(soa.directions[o3], soa.directions[o3 + 1], soa.directions[o3 + 2]);
 		_quaternion.setFromUnitVectors(FORWARD, _direction);
 
-		// Scale: length along X (forward), width along Y, flat along Z
-		_scale.set(soa.lengths[i], RAIL_WIDTH, 1);
+		// Perpendicular vector in XZ plane (cross of direction × up)
+		_perpendicular.crossVectors(_direction, UP_VECTOR).normalize();
 
-		_matrix.compose(_position, _quaternion, _scale);
-		mesh.setMatrixAt(soaStartIndex + i, _matrix);
+		// Scale: length along X (forward), track width along Y
+		_scale.set(soa.lengths[i], TRACK_WIDTH, 1);
+
+		const idx = soaStartIndex + i;
+
+		// Left track: offset in -perpendicular direction
+		_trackPos.copy(_position).addScaledVector(_perpendicular, -TRACK_OFFSET);
+		_matrix.compose(_trackPos, _quaternion, _scale);
+		leftMesh.setMatrixAt(idx, _matrix);
+
+		// Right track: offset in +perpendicular direction
+		_trackPos.copy(_position).addScaledVector(_perpendicular, TRACK_OFFSET);
+		_matrix.compose(_trackPos, _quaternion, _scale);
+		rightMesh.setMatrixAt(idx, _matrix);
 	}
 }

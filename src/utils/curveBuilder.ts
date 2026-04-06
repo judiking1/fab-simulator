@@ -119,13 +119,10 @@ function createDefaultLinePoints(
 	const segmentsOle = tmpSum > 0 && ole > 0 ? segments / (ole / tmpSum) : segments;
 
 	// VOS: lengthCount = [(fle/tmpSum)*segments_ole, (ole/tmpSum)*segments_ole, (tle/tmpSum)*segments_ole]
-	const lengthCount = tmpSum > 0
-		? [
-			(fle / tmpSum) * segmentsOle,
-			(ole / tmpSum) * segmentsOle,
-			(tle / tmpSum) * segmentsOle,
-		]
-		: [2, segments, 2];
+	const lengthCount =
+		tmpSum > 0
+			? [(fle / tmpSum) * segmentsOle, (ole / tmpSum) * segmentsOle, (tle / tmpSum) * segmentsOle]
+			: [2, segments, 2];
 
 	let ret: Vector3[] = [];
 	let curve: Vector3[] = [];
@@ -341,7 +338,7 @@ function createSCurveLinePoints(
 	// (S_CURVE_SPECIAL forces "x", but we only have S_CURVE)
 	const axis: "x" | "z" = Math.abs(dx) > Math.abs(dz) ? "z" : "x";
 	// VOS: sgn
-	const sgn = axis === "z" ? (dz >= 0 ? 1 : -1) : (dx >= 0 ? 1 : -1);
+	const sgn = axis === "z" ? (dz >= 0 ? 1 : -1) : dx >= 0 ? 1 : -1;
 
 	// VOS: 원호 중심
 	const C1 = new Vector3(
@@ -479,7 +476,7 @@ function createCSCCurveHomoLinePoints(
 	// VOS: 축 선택 — |dx| < |dz| → "z", else "x"
 	// (Note: this is OPPOSITE of S_CURVE's axis selection)
 	const axis: "x" | "z" = Math.abs(dx) < Math.abs(dz) ? "z" : "x";
-	const sgn = axis === "z" ? (dz >= 0 ? 1 : -1) : (dx >= 0 ? 1 : -1);
+	const sgn = axis === "z" ? (dz >= 0 ? 1 : -1) : dx >= 0 ? 1 : -1;
 
 	// VOS: 첫 번째 원호 중심 (시작점 기준) — MINUS offset
 	const C1 = new Vector3(

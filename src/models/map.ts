@@ -4,6 +4,7 @@
  */
 
 import type { BayData } from "./bay";
+import type { EquipmentData, EquipmentSpec } from "./equipment";
 import type { NodeData } from "./node";
 import type { PortData } from "./port";
 import type { RailData } from "./rail";
@@ -61,6 +62,10 @@ export interface FabMapFile {
 
 	// Topology
 	bays: Record<string, BayData>;
+
+	// Equipment (optional for backward compat — derived from ports if absent)
+	equipment?: Record<string, EquipmentData>;
+	equipmentSpecs?: Record<string, EquipmentSpec>;
 
 	// User-defined grouping (extensible, optional)
 	areas?: Record<string, AreaData>;

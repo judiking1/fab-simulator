@@ -17,7 +17,17 @@
  */
 
 import { create } from "zustand";
-import type { BayData, FabMapFile, FabMapMetadata, NodeData, PortData, RailData } from "@/models";
+import type {
+	BayData,
+	EquipmentData,
+	EquipmentSpec,
+	FabMapFile,
+	FabMapMetadata,
+	NodeData,
+	PortData,
+	RailData,
+} from "@/models";
+import { deriveEquipmentFromPorts } from "@/utils/equipmentDerivation";
 
 // ---------------------------------------------------------------------------
 // State shape
@@ -29,6 +39,8 @@ interface MapState {
 	rails: Record<string, RailData>;
 	ports: Record<string, PortData>;
 	bays: Record<string, BayData>;
+	equipment: Record<string, EquipmentData>;
+	equipmentSpecs: Record<string, EquipmentSpec>;
 
 	// Derived index (auto-maintained on rail add/remove)
 	adjacencyMap: Record<string, string[]>;
@@ -36,6 +48,7 @@ interface MapState {
 	// Dirty tracking for Layer 2 geometry cache (mutable Sets, consumed by useFrame)
 	dirtyRailIds: Set<string>;
 	dirtyPortIds: Set<string>;
+	dirtyEquipmentIds: Set<string>;
 
 	// Map metadata
 	metadata: FabMapMetadata | null;
@@ -62,6 +75,11 @@ interface MapActions {
 	updateBay: (id: string, updates: Partial<BayData>) => void;
 	removeBay: (id: string) => void;
 
+	// --- Equipment CRUD ---
+	addEquipment: (eq: EquipmentData) => void;
+	updateEquipment: (id: string, updates: Partial<EquipmentData>) => void;
+	removeEquipment: (id: string) => void;
+
 	// --- Batch operations ---
 	batchCreate: (params: {
 		nodes: NodeData[];
@@ -69,12 +87,18 @@ interface MapActions {
 		ports: PortData[];
 		bayId: string;
 	}) => void;
+	/** Batch update multiple entities in a single set() call (for drag moves) */
+	batchUpdate: (updates: {
+		nodes?: Array<{ id: string; changes: Partial<NodeData> }>;
+		equipment?: Array<{ id: string; changes: Partial<EquipmentData> }>;
+	}) => void;
 	loadMap: (file: FabMapFile) => void;
 	clearMap: () => void;
 
 	// --- Dirty flag consumption (called by useFrame) ---
 	consumeDirtyRails: () => string[];
 	consumeDirtyPorts: () => string[];
+	consumeDirtyEquipment: () => string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -87,9 +111,12 @@ function createEmptyState(): MapState {
 		rails: {},
 		ports: {},
 		bays: {},
+		equipment: {},
+		equipmentSpecs: {},
 		adjacencyMap: {},
 		dirtyRailIds: new Set<string>(),
 		dirtyPortIds: new Set<string>(),
+		dirtyEquipmentIds: new Set<string>(),
 		metadata: null,
 	};
 }
@@ -288,11 +315,17 @@ export const useMapStore = create<MapState & MapActions>()((set, get) => ({
 			return;
 		}
 
-		// Remove ports attached to this rail first
+		// Collect ports and equipment attached to this rail for cascade delete
 		const portsToRemove: string[] = [];
 		for (const port of Object.values(state.ports)) {
 			if (port.railId === id) {
 				portsToRemove.push(port.id);
+			}
+		}
+		const equipmentToRemove: string[] = [];
+		for (const eq of Object.values(state.equipment)) {
+			if (eq.railId === id) {
+				equipmentToRemove.push(eq.id);
 			}
 		}
 
@@ -305,9 +338,17 @@ export const useMapStore = create<MapState & MapActions>()((set, get) => ({
 					delete (nextPorts as Record<string, PortData | undefined>)[pid];
 				}
 			}
+			let nextEquipment = prev.equipment;
+			if (equipmentToRemove.length > 0) {
+				nextEquipment = { ...prev.equipment };
+				for (const eqId of equipmentToRemove) {
+					delete (nextEquipment as Record<string, EquipmentData | undefined>)[eqId];
+				}
+			}
 			return {
 				rails: restRails,
 				ports: nextPorts,
+				equipment: nextEquipment,
 				adjacencyMap: removeRailFromAdjacency(prev.adjacencyMap, existing),
 			};
 		});
@@ -377,6 +418,61 @@ export const useMapStore = create<MapState & MapActions>()((set, get) => ({
 	},
 
 	// =========================================================================
+	// Equipment CRUD
+	// =========================================================================
+
+	addEquipment(eq: EquipmentData): void {
+		set((state) => ({
+			equipment: { ...state.equipment, [eq.id]: eq },
+		}));
+		get().dirtyEquipmentIds.add(eq.id);
+	},
+
+	updateEquipment(id: string, updates: Partial<EquipmentData>): void {
+		const state = get();
+		const existing = state.equipment[id];
+		if (!existing) {
+			console.warn(`[mapStore] updateEquipment: equipment "${id}" not found`);
+			return;
+		}
+
+		state.dirtyEquipmentIds.add(id);
+
+		// If the equipment moved, its ports may also need re-positioning
+		if (updates.railId !== undefined || updates.ratio !== undefined || updates.side !== undefined) {
+			for (const portId of existing.portIds) {
+				state.dirtyPortIds.add(portId);
+			}
+		}
+
+		set((prev) => ({
+			equipment: { ...prev.equipment, [id]: { ...existing, ...updates, id } },
+		}));
+	},
+
+	removeEquipment(id: string): void {
+		const state = get();
+		const existing = state.equipment[id];
+		if (!existing) {
+			console.warn(`[mapStore] removeEquipment: equipment "${id}" not found`);
+			return;
+		}
+
+		// Cascade-delete owned ports
+		set((prev) => {
+			const { [id]: _removed, ...restEquipment } = prev.equipment;
+			let nextPorts = prev.ports;
+			if (existing.portIds.length > 0) {
+				nextPorts = { ...prev.ports };
+				for (const portId of existing.portIds) {
+					delete (nextPorts as Record<string, PortData | undefined>)[portId];
+				}
+			}
+			return { equipment: restEquipment, ports: nextPorts };
+		});
+	},
+
+	// =========================================================================
 	// Batch operations
 	// =========================================================================
 
@@ -440,27 +536,94 @@ export const useMapStore = create<MapState & MapActions>()((set, get) => ({
 		});
 	},
 
+	batchUpdate(updates): void {
+		const state = get();
+
+		set((prev) => {
+			let nextNodes = prev.nodes;
+			if (updates.nodes && updates.nodes.length > 0) {
+				nextNodes = { ...prev.nodes };
+				for (const { id, changes } of updates.nodes) {
+					const existing = nextNodes[id];
+					if (!existing) continue;
+					nextNodes[id] = { ...existing, ...changes, id };
+					// Mark connected rails dirty
+					markNodeRailsDirty(state.adjacencyMap, id, state.dirtyRailIds);
+					const connectedRailIds = state.adjacencyMap[id];
+					if (connectedRailIds) {
+						for (const railId of connectedRailIds) {
+							markRailPortsDirty(prev.ports, railId, state.dirtyPortIds);
+						}
+					}
+				}
+			}
+
+			let nextEquipment = prev.equipment;
+			if (updates.equipment && updates.equipment.length > 0) {
+				nextEquipment = { ...prev.equipment };
+				for (const { id, changes } of updates.equipment) {
+					const existing = nextEquipment[id];
+					if (!existing) continue;
+					nextEquipment[id] = { ...existing, ...changes, id };
+					state.dirtyEquipmentIds.add(id);
+					// Mark owned ports dirty if position changed
+					if (
+						changes.railId !== undefined ||
+						changes.ratio !== undefined ||
+						changes.side !== undefined
+					) {
+						for (const portId of existing.portIds) {
+							state.dirtyPortIds.add(portId);
+						}
+					}
+				}
+			}
+
+			return { nodes: nextNodes, equipment: nextEquipment };
+		});
+	},
+
 	loadMap(file: FabMapFile): void {
 		const adjacencyMap = buildAdjacencyMap(file.rails);
+
+		// Derive equipment from ports if not present in file (backward compat)
+		const equipment = file.equipment ? { ...file.equipment } : deriveEquipmentFromPorts(file.ports);
+		const equipmentSpecs = file.equipmentSpecs ? { ...file.equipmentSpecs } : {};
 
 		// Fresh dirty sets — all entities are "dirty" after load so Layer 2 rebuilds
 		const dirtyRailIds = new Set<string>(Object.keys(file.rails));
 		const dirtyPortIds = new Set<string>(Object.keys(file.ports));
+		const dirtyEquipmentIds = new Set<string>(Object.keys(equipment));
 
 		set({
 			nodes: { ...file.nodes },
 			rails: { ...file.rails },
 			ports: { ...file.ports },
 			bays: { ...file.bays },
+			equipment,
+			equipmentSpecs,
 			adjacencyMap,
 			dirtyRailIds,
 			dirtyPortIds,
+			dirtyEquipmentIds,
 			metadata: file.metadata,
 		});
 	},
 
 	clearMap(): void {
 		set(createEmptyState());
+	},
+
+	// =========================================================================
+	// Dirty flag consumption — Equipment
+	// =========================================================================
+
+	consumeDirtyEquipment(): string[] {
+		const state = get();
+		if (state.dirtyEquipmentIds.size === 0) return [];
+		const ids = [...state.dirtyEquipmentIds];
+		state.dirtyEquipmentIds.clear();
+		return ids;
 	},
 
 	// =========================================================================
@@ -496,3 +659,6 @@ export const selectRailCount = (state: MapState): number => Object.keys(state.ra
 export const selectPortCount = (state: MapState): number => Object.keys(state.ports).length;
 
 export const selectBayCount = (state: MapState): number => Object.keys(state.bays).length;
+
+export const selectEquipmentCount = (state: MapState): number =>
+	Object.keys(state.equipment).length;

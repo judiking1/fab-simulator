@@ -549,7 +549,7 @@ export function parseVosStationMap(
 		const barcodeX = safeParseFloat(row["barcode_x"], 0);
 		const stationType = row["station_type"] ?? "EQ";
 		const bayName = row["bay_name"] ?? "";
-		const portId = row["port_id"] ?? row["sc_id"] ?? stationName;
+		const scId = row["sc_id"] ?? row["port_id"] ?? stationName;
 		const portTypeCode = row["port_type_code"] ?? "3";
 		const directionCode = row["direction_code"] ?? "3";
 		const vosRailName = row["rail_name"] ?? "";
@@ -596,7 +596,7 @@ export function parseVosStationMap(
 			railId,
 			ratio,
 			equipmentType: mapEquipmentType(stationType),
-			equipmentId: portId,
+			equipmentId: scId,
 			portType: mapPortType(portTypeCode),
 			bayId: bayName,
 			fabId,

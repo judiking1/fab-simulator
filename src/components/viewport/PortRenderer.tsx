@@ -23,6 +23,7 @@ import {
 } from "three";
 import { EQUIPMENT_TYPE, type EquipmentType } from "@/models/port";
 import { selectPortCount, useMapStore } from "@/stores/mapStore";
+import { registerMesh } from "@/systems/instanceRegistry";
 import { buildRailCurve } from "@/utils/curveBuilder";
 import {
 	type CachedCurveData,
@@ -153,6 +154,11 @@ export function PortRenderer(): React.JSX.Element {
 		updateMesh(eqMeshRef.current, eqPorts, ports, curveCache);
 		updateMesh(stkMeshRef.current, stkPorts, ports, curveCache);
 		updateMesh(ohbMeshRef.current, ohbPorts, ports, curveCache);
+
+		// Register with instance registry for raycasting
+		if (eqMeshRef.current) registerMesh(eqMeshRef.current.uuid, "port", eqPorts);
+		if (stkMeshRef.current) registerMesh(stkMeshRef.current.uuid, "port", stkPorts);
+		if (ohbMeshRef.current) registerMesh(ohbMeshRef.current.uuid, "port", ohbPorts);
 	}, []);
 
 	// Full rebuild when port count changes.

@@ -180,9 +180,7 @@ export function useMapImporter(): UseMapImporterReturn {
 
 				const count = Object.keys(nodes).length;
 				if (count === 0) {
-					throw new Error(
-						`No valid nodes found. Check file format (detected: ${format}).`,
-					);
+					throw new Error(`No valid nodes found. Check file format (detected: ${format}).`);
 				}
 
 				nodesRef.current = nodes;
@@ -269,9 +267,7 @@ export function useMapImporter(): UseMapImporterReturn {
 				const railCount = Object.keys(rails).length;
 				const bayCount = Object.keys(bays).length;
 				if (railCount === 0) {
-					throw new Error(
-						`No valid rails found. Check file format (detected: ${format}).`,
-					);
+					throw new Error(`No valid rails found. Check file format (detected: ${format}).`);
 				}
 
 				railsRef.current = rails;
@@ -333,9 +329,7 @@ export function useMapImporter(): UseMapImporterReturn {
 
 				const count = Object.keys(ports).length;
 				if (count === 0) {
-					throw new Error(
-						`No valid ports found. Check file format (detected: ${format}).`,
-					);
+					throw new Error(`No valid ports found. Check file format (detected: ${format}).`);
 				}
 
 				portsRef.current = ports;

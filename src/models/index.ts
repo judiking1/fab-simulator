@@ -1,6 +1,9 @@
 // Data model re-exports
 
 export type { BayData } from "./bay";
+export type { ClipboardPayload, EditorMode, EntityKind, EntityRef } from "./editor";
+export { EDITOR_MODE, ENTITY_KIND } from "./editor";
+export type { EquipmentData, EquipmentSpec, PortSlotDef } from "./equipment";
 export type {
 	AreaData,
 	FabMapFile,
