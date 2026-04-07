@@ -63,7 +63,7 @@ export const useUiStore = create<UiState>((set, get) => ({
 	// Defaults
 	selectedEntities: [],
 	hoveredEntity: null,
-	editorMode: EDITOR_MODE.SELECT,
+	editorMode: EDITOR_MODE.VIEW,
 	clipboard: null,
 	rubberBand: null,
 	snapToGrid: false,

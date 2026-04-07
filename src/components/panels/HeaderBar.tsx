@@ -5,8 +5,10 @@
  * Dependency enforcement: Rails disabled until Nodes loaded, Ports disabled until Rails loaded.
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { UseMapImporterReturn } from "@/hooks/useMapImporter";
+import { EDITOR_MODE } from "@/models/editor";
+import { useUiStore } from "@/stores/uiStore";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -118,19 +120,60 @@ function ImportStepRow({
 
 export function HeaderBar({ importer }: HeaderBarProps): React.JSX.Element {
 	const [isOpen, setIsOpen] = useState(false);
+	const editorMode = useUiStore((s) => s.editorMode);
+	const setEditorMode = useUiStore((s) => s.setEditorMode);
+
+	const isEditMode = editorMode === EDITOR_MODE.SELECT;
 
 	const togglePanel = useCallback((): void => {
 		setIsOpen((prev) => !prev);
 	}, []);
 
+	const toggleEditMode = useCallback((): void => {
+		setEditorMode(isEditMode ? EDITOR_MODE.VIEW : EDITOR_MODE.SELECT);
+	}, [isEditMode, setEditorMode]);
+
+	// Keyboard shortcut: E to toggle edit mode
+	useEffect(() => {
+		function handleKeyDown(e: KeyboardEvent): void {
+			if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+			if (e.key === "e" || e.key === "E") {
+				e.preventDefault();
+				setEditorMode(
+					useUiStore.getState().editorMode === EDITOR_MODE.SELECT
+						? EDITOR_MODE.VIEW
+						: EDITOR_MODE.SELECT,
+				);
+			}
+		}
+		window.addEventListener("keydown", handleKeyDown);
+		return () => window.removeEventListener("keydown", handleKeyDown);
+	}, [setEditorMode]);
+
 	const hasAnyData = importer.nodesLoaded || importer.railsLoaded || importer.portsLoaded;
 
 	return (
 		<header className="relative flex h-10 shrink-0 items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-4">
-			{/* Left: Title */}
-			<h1 className="text-sm font-semibold tracking-wide text-[var(--color-text-primary)]">
-				FAB Simulator
-			</h1>
+			{/* Left: Title + Mode toggle */}
+			<div className="flex items-center gap-3">
+				<h1 className="text-sm font-semibold tracking-wide text-[var(--color-text-primary)]">
+					FAB Simulator
+				</h1>
+
+				{/* View / Edit mode toggle */}
+				<button
+					type="button"
+					onClick={toggleEditMode}
+					className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors ${
+						isEditMode
+							? "bg-[var(--color-accent)] text-white"
+							: "bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+					}`}
+					title="Toggle edit mode (E)"
+				>
+					{isEditMode ? "EDIT" : "VIEW"}
+				</button>
+			</div>
 
 			{/* Right: Import button + stats */}
 			<div className="flex items-center gap-3">

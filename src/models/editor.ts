@@ -33,6 +33,7 @@ export interface EntityRef {
 // ---------------------------------------------------------------------------
 
 export const EDITOR_MODE = {
+	VIEW: "view",
 	SELECT: "select",
 	PAN: "pan",
 	ADD_NODE: "add_node",

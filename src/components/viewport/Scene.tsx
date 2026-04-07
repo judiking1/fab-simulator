@@ -45,7 +45,7 @@ function SceneContent(): React.JSX.Element {
 			// Disable left-click rotate/pan on CameraControls — editor handles it
 			controls.mouseButtons.left = 0; // ACTION.NONE
 		} else {
-			// PAN mode: restore default left-click behavior (rotate)
+			// VIEW/PAN mode: left-click for camera rotation
 			controls.mouseButtons.left = 1; // ACTION.ROTATE
 		}
 	}, [editorMode]);
