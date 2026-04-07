@@ -46,9 +46,9 @@ const PORT_COLORS: Record<EquipmentType, Color> = {
 const LATERAL_OFFSET = 0.485;
 
 // Per-type box scales (visual distinction)
-const SCALE_EQ = new Vector3(0.5, 0.3, 0.5);
-const SCALE_STK = new Vector3(0.35, 0.04, 0.35);
-const SCALE_OHB = new Vector3(0.5, 0.1, 0.5);
+const SCALE_EQ = new Vector3(0.25, 0.15, 0.25);
+const SCALE_STK = new Vector3(0.2, 0.03, 0.2);
+const SCALE_OHB = new Vector3(0.25, 0.06, 0.25);
 
 // Module-scoped temporaries
 const _position = new Vector3();
@@ -324,10 +324,10 @@ function computePortMatrix(
 		// Height offset by equipment type
 		switch (port.equipmentType) {
 			case "STK":
-				_position.y -= 1.0;
+				_position.y -= 0.5;
 				break;
 			case "OHB":
-				_position.y -= 0.95;
+				_position.y -= 0.45;
 				break;
 			// EQ: no Y offset
 		}
@@ -346,7 +346,7 @@ function computePortMatrix(
 				_position.addScaledVector(_perpendicular, -LATERAL_OFFSET);
 				break;
 			case "overhead":
-				_position.y -= 0.3;
+				_position.y -= 0.15;
 				break;
 		}
 	} else {

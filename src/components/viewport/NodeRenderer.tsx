@@ -32,7 +32,7 @@ import { registerMesh } from "@/systems/instanceRegistry";
 // ---------------------------------------------------------------------------
 
 const NODE_COLOR = new Color("#6b7280");
-const NODE_RADIUS = 0.18;
+const NODE_RADIUS = 0.12;
 const HIT_RADIUS = 0.5; // Invisible hit area — larger for easy clicking
 const NODE_WIDTH_SEGMENTS = 8;
 const NODE_HEIGHT_SEGMENTS = 6;
@@ -94,7 +94,8 @@ export function NodeRenderer(): React.JSX.Element | null {
 		const hitMesh = hitMeshRef.current;
 		if (!mesh) return;
 
-		const nodeList = Object.values(nodes);
+		// Filter out TMP_ nodes (drawing-helper nodes for curve construction, not real waypoints)
+		const nodeList = Object.values(nodes).filter((n) => !n.id.startsWith("TMP_"));
 		const indexMap = new Map<string, number>();
 
 		mesh.count = nodeList.length;

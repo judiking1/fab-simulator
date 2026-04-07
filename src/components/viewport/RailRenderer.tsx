@@ -34,8 +34,8 @@ import { buildRailSoA, getSegmentCount, type RailSegmentSoA } from "@/utils/rail
 // ---------------------------------------------------------------------------
 
 const RAIL_COLOR = new Color("#2563eb");
-const TRACK_WIDTH = 0.06;
-const TRACK_OFFSET = 0.15;
+const TRACK_WIDTH = 0.12;
+const TRACK_OFFSET = 0.18;
 const FORWARD = new Vector3(1, 0, 0); // Base direction of PlaneGeometry
 const UP_VECTOR = new Vector3(0, 1, 0);
 

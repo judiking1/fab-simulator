@@ -15,6 +15,7 @@ import { useViewportInteraction } from "@/hooks/useViewportInteraction";
 import { EDITOR_MODE } from "@/models/editor";
 import { useUiStore } from "@/stores/uiStore";
 import { EquipmentRenderer } from "./EquipmentRenderer";
+import { LabelRenderer } from "./LabelRenderer";
 import { NodeRenderer } from "./NodeRenderer";
 import { PortRenderer } from "./PortRenderer";
 import { RailRenderer } from "./RailRenderer";
@@ -66,6 +67,9 @@ function SceneContent(): React.JSX.Element {
 			<RailRenderer />
 			<PortRenderer />
 			<EquipmentRenderer />
+
+			{/* ID labels (camera-distance LOD) */}
+			<LabelRenderer />
 
 			{/* Selection highlights */}
 			<SelectionOverlay />

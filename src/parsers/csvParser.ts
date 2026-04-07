@@ -20,10 +20,17 @@ import { parseBracketList, parseCsvText, requireField, safeParseFloat } from "./
 
 const VALID_RAIL_TYPES = new Set<string>(Object.values(RAIL_TYPE));
 
+/** VOS aliases that map to our canonical rail types */
+const RAIL_TYPE_ALIASES: Record<string, RailType> = {
+	CCW_CURVE: RAIL_TYPE.LEFT_CURVE,
+	CW_CURVE: RAIL_TYPE.RIGHT_CURVE,
+	S_CURVE_50: RAIL_TYPE.S_CURVE,
+};
+
 function toRailType(raw: string): RailType {
 	const upper = raw.trim().toUpperCase();
 	if (VALID_RAIL_TYPES.has(upper)) return upper as RailType;
-	return RAIL_TYPE.LINEAR;
+	return RAIL_TYPE_ALIASES[upper] ?? RAIL_TYPE.LINEAR;
 }
 
 // ---------------------------------------------------------------------------

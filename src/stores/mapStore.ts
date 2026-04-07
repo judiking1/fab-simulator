@@ -189,6 +189,81 @@ function markRailPortsDirty(
 }
 
 // ---------------------------------------------------------------------------
+// Merge coincident nodes — VOS data creates separate node IDs at junctions
+// ---------------------------------------------------------------------------
+
+/**
+ * Merge nodes that share the exact same (x, y, z) coordinates.
+ * The first node ID encountered becomes the "canonical" ID.
+ * All rail/port references to duplicate node IDs are remapped.
+ *
+ * Also remaps curveNodeIds in rails (intermediate curve waypoints).
+ */
+function mergeCoincidentNodes(
+	inputNodes: Record<string, NodeData>,
+	inputRails: Record<string, RailData>,
+	inputPorts: Record<string, PortData>,
+): {
+	nodes: Record<string, NodeData>;
+	rails: Record<string, RailData>;
+	ports: Record<string, PortData>;
+} {
+	// Build coordinate → canonical node ID mapping
+	const coordToCanonical = new Map<string, string>();
+	const idRemap = new Map<string, string>(); // duplicateId → canonicalId
+
+	for (const node of Object.values(inputNodes)) {
+		// Use fixed precision to handle floating-point comparison
+		const key = `${node.x.toFixed(6)},${node.y.toFixed(6)},${node.z.toFixed(6)}`;
+		const existing = coordToCanonical.get(key);
+		if (existing) {
+			idRemap.set(node.id, existing);
+		} else {
+			coordToCanonical.set(key, node.id);
+		}
+	}
+
+	// If no duplicates, return as-is (avoid unnecessary copies)
+	if (idRemap.size === 0) {
+		return {
+			nodes: { ...inputNodes },
+			rails: { ...inputRails },
+			ports: { ...inputPorts },
+		};
+	}
+
+	console.log(
+		`[mapStore] Merged ${idRemap.size} coincident nodes (${Object.keys(inputNodes).length} → ${Object.keys(inputNodes).length - idRemap.size})`,
+	);
+
+	// Build deduplicated nodes record (only canonical nodes)
+	const nodes: Record<string, NodeData> = {};
+	for (const node of Object.values(inputNodes)) {
+		if (!idRemap.has(node.id)) {
+			nodes[node.id] = node;
+		}
+	}
+
+	// Remap rail endpoint references
+	const remapId = (id: string): string => idRemap.get(id) ?? id;
+
+	const rails: Record<string, RailData> = {};
+	for (const rail of Object.values(inputRails)) {
+		rails[rail.id] = {
+			...rail,
+			fromNodeId: remapId(rail.fromNodeId),
+			toNodeId: remapId(rail.toNodeId),
+			curveNodeIds: rail.curveNodeIds.map(remapId),
+		};
+	}
+
+	// Remap port references (ports reference rails, not nodes directly, so no changes needed)
+	const ports: Record<string, PortData> = { ...inputPorts };
+
+	return { nodes, rails, ports };
+}
+
+// ---------------------------------------------------------------------------
 // Build adjacency from a full rails record (used by loadMap)
 // ---------------------------------------------------------------------------
 
@@ -584,21 +659,25 @@ export const useMapStore = create<MapState & MapActions>()((set, get) => ({
 	},
 
 	loadMap(file: FabMapFile): void {
-		const adjacencyMap = buildAdjacencyMap(file.rails);
+		// Merge coincident nodes (same coordinates) into a single representative node.
+		// VOS data often creates separate node IDs per rail endpoint at junctions.
+		const { nodes, rails, ports } = mergeCoincidentNodes(file.nodes, file.rails, file.ports);
+
+		const adjacencyMap = buildAdjacencyMap(rails);
 
 		// Derive equipment from ports if not present in file (backward compat)
-		const equipment = file.equipment ? { ...file.equipment } : deriveEquipmentFromPorts(file.ports);
+		const equipment = file.equipment ? { ...file.equipment } : deriveEquipmentFromPorts(ports);
 		const equipmentSpecs = file.equipmentSpecs ? { ...file.equipmentSpecs } : {};
 
 		// Fresh dirty sets — all entities are "dirty" after load so Layer 2 rebuilds
-		const dirtyRailIds = new Set<string>(Object.keys(file.rails));
-		const dirtyPortIds = new Set<string>(Object.keys(file.ports));
+		const dirtyRailIds = new Set<string>(Object.keys(rails));
+		const dirtyPortIds = new Set<string>(Object.keys(ports));
 		const dirtyEquipmentIds = new Set<string>(Object.keys(equipment));
 
 		set({
-			nodes: { ...file.nodes },
-			rails: { ...file.rails },
-			ports: { ...file.ports },
+			nodes,
+			rails,
+			ports,
 			bays: { ...file.bays },
 			equipment,
 			equipmentSpecs,

@@ -40,13 +40,13 @@ const EQ_COLOR = new Color("#22c55e");
 const STK_COLOR = new Color("#8b5cf6");
 const OHB_COLOR = new Color("#f59e0b");
 
-const EQ_SCALE = new Vector3(1.2, 0.6, 0.8);
-const STK_SCALE = new Vector3(0.8, 1.2, 0.8);
-const OHB_SCALE = new Vector3(0.5, 0.15, 0.5);
+const EQ_SCALE = new Vector3(0.6, 0.3, 0.45);
+const STK_SCALE = new Vector3(0.45, 0.6, 0.45);
+const OHB_SCALE = new Vector3(0.3, 0.08, 0.3);
 
-const EQ_Y_OFFSET = 0.3;
-const STK_Y_OFFSET = 0.6;
-const OHB_Y_OFFSET = -0.5;
+const EQ_Y_OFFSET = 0.15;
+const STK_Y_OFFSET = 0.3;
+const OHB_Y_OFFSET = -0.4;
 
 /** Lateral offset (perpendicular to rail tangent) — matches VOS/PortRenderer value */
 const LATERAL_OFFSET = 0.485;
