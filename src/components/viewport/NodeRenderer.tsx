@@ -94,8 +94,7 @@ export function NodeRenderer(): React.JSX.Element | null {
 		const hitMesh = hitMeshRef.current;
 		if (!mesh) return;
 
-		// Filter out TMP_ nodes (drawing-helper nodes for curve construction, not real waypoints)
-		const nodeList = Object.values(nodes).filter((n) => !n.id.startsWith("TMP_"));
+		const nodeList = Object.values(nodes);
 		const indexMap = new Map<string, number>();
 
 		mesh.count = nodeList.length;

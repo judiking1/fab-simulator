@@ -141,10 +141,9 @@ export function LabelRenderer(): React.JSX.Element | null {
 
 		let count = 0;
 
-		// Collect nearby nodes (skip TMP_ drawing-helper nodes)
+		// Collect nearby nodes
 		for (const node of Object.values(nodes)) {
 			if (count >= MAX_LABELS) break;
-			if (node.id.startsWith("TMP_")) continue;
 
 			_entityPos.set(node.x, node.y, node.z);
 			const distSq = _camPos.distanceToSquared(_entityPos);

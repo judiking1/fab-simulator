@@ -42,6 +42,9 @@ interface MapState {
 	equipment: Record<string, EquipmentData>;
 	equipmentSpecs: Record<string, EquipmentSpec>;
 
+	/** Curve helper nodes (TMP_ prefixed) — used internally by curveBuilder, not rendered */
+	curveNodes: Record<string, NodeData>;
+
 	// Derived index (auto-maintained on rail add/remove)
 	adjacencyMap: Record<string, string[]>;
 
@@ -113,6 +116,7 @@ function createEmptyState(): MapState {
 		bays: {},
 		equipment: {},
 		equipmentSpecs: {},
+		curveNodes: {},
 		adjacencyMap: {},
 		dirtyRailIds: new Set<string>(),
 		dirtyPortIds: new Set<string>(),
@@ -193,11 +197,12 @@ function markRailPortsDirty(
 // ---------------------------------------------------------------------------
 
 /**
- * Merge nodes that share the exact same (x, y, z) coordinates.
- * The first node ID encountered becomes the "canonical" ID.
- * All rail/port references to duplicate node IDs are remapped.
+ * Merge coincident nodes and separate TMP_ curve helper nodes.
  *
- * Also remaps curveNodeIds in rails (intermediate curve waypoints).
+ * 1. Splits TMP_ prefixed nodes into a separate `curveNodes` record
+ *    (used internally by curveBuilder, not rendered)
+ * 2. Merges remaining nodes that share exact (x,y,z) coordinates
+ * 3. Remaps rail endpoint and curveNodeIds references
  */
 function mergeCoincidentNodes(
 	inputNodes: Record<string, NodeData>,
@@ -205,15 +210,27 @@ function mergeCoincidentNodes(
 	inputPorts: Record<string, PortData>,
 ): {
 	nodes: Record<string, NodeData>;
+	curveNodes: Record<string, NodeData>;
 	rails: Record<string, RailData>;
 	ports: Record<string, PortData>;
 } {
-	// Build coordinate → canonical node ID mapping
-	const coordToCanonical = new Map<string, string>();
-	const idRemap = new Map<string, string>(); // duplicateId → canonicalId
+	// Step 1: Separate TMP_ nodes from regular nodes
+	const regularNodes: Record<string, NodeData> = {};
+	const curveNodes: Record<string, NodeData> = {};
 
 	for (const node of Object.values(inputNodes)) {
-		// Use fixed precision to handle floating-point comparison
+		if (node.id.startsWith("TMP_")) {
+			curveNodes[node.id] = node;
+		} else {
+			regularNodes[node.id] = node;
+		}
+	}
+
+	// Step 2: Merge coincident regular nodes
+	const coordToCanonical = new Map<string, string>();
+	const idRemap = new Map<string, string>();
+
+	for (const node of Object.values(regularNodes)) {
 		const key = `${node.x.toFixed(6)},${node.y.toFixed(6)},${node.z.toFixed(6)}`;
 		const existing = coordToCanonical.get(key);
 		if (existing) {
@@ -223,28 +240,21 @@ function mergeCoincidentNodes(
 		}
 	}
 
-	// If no duplicates, return as-is (avoid unnecessary copies)
-	if (idRemap.size === 0) {
-		return {
-			nodes: { ...inputNodes },
-			rails: { ...inputRails },
-			ports: { ...inputPorts },
-		};
-	}
-
-	console.log(
-		`[mapStore] Merged ${idRemap.size} coincident nodes (${Object.keys(inputNodes).length} → ${Object.keys(inputNodes).length - idRemap.size})`,
-	);
-
-	// Build deduplicated nodes record (only canonical nodes)
+	// Build deduplicated nodes (only canonical IDs)
 	const nodes: Record<string, NodeData> = {};
-	for (const node of Object.values(inputNodes)) {
+	for (const node of Object.values(regularNodes)) {
 		if (!idRemap.has(node.id)) {
 			nodes[node.id] = node;
 		}
 	}
 
-	// Remap rail endpoint references
+	if (idRemap.size > 0 || Object.keys(curveNodes).length > 0) {
+		console.log(
+			`[mapStore] Nodes: ${Object.keys(inputNodes).length} total → ${Object.keys(nodes).length} regular + ${Object.keys(curveNodes).length} curve helpers (${idRemap.size} coincident merged)`,
+		);
+	}
+
+	// Step 3: Remap rail references
 	const remapId = (id: string): string => idRemap.get(id) ?? id;
 
 	const rails: Record<string, RailData> = {};
@@ -257,10 +267,9 @@ function mergeCoincidentNodes(
 		};
 	}
 
-	// Remap port references (ports reference rails, not nodes directly, so no changes needed)
 	const ports: Record<string, PortData> = { ...inputPorts };
 
-	return { nodes, rails, ports };
+	return { nodes, curveNodes, rails, ports };
 }
 
 // ---------------------------------------------------------------------------
@@ -661,7 +670,7 @@ export const useMapStore = create<MapState & MapActions>()((set, get) => ({
 	loadMap(file: FabMapFile): void {
 		// Merge coincident nodes (same coordinates) into a single representative node.
 		// VOS data often creates separate node IDs per rail endpoint at junctions.
-		const { nodes, rails, ports } = mergeCoincidentNodes(file.nodes, file.rails, file.ports);
+		const { nodes, curveNodes, rails, ports } = mergeCoincidentNodes(file.nodes, file.rails, file.ports);
 
 		const adjacencyMap = buildAdjacencyMap(rails);
 
@@ -676,6 +685,7 @@ export const useMapStore = create<MapState & MapActions>()((set, get) => ({
 
 		set({
 			nodes,
+			curveNodes,
 			rails,
 			ports,
 			bays: { ...file.bays },

@@ -95,7 +95,9 @@ export function RailRenderer(): React.JSX.Element | null {
 	 * Stable ref: only accesses refs and store.getState() — no reactive deps.
 	 */
 	const rebuildAllRails = useCallback((): void => {
-		const { nodes, rails } = useMapStore.getState();
+		const { nodes, curveNodes, rails } = useMapStore.getState();
+		// Merge nodes + curveNodes for CSC_CURVE_HETE waypoint lookup
+		const allNodes = { ...nodes, ...curveNodes };
 		const cache = new Map<string, RailGeometryEntry>();
 		let totalSegments = 0;
 
@@ -110,7 +112,7 @@ export function RailRenderer(): React.JSX.Element | null {
 			const fromPos = new Vector3(fromNode.x, fromNode.y, fromNode.z);
 			const toPos = new Vector3(toNode.x, toNode.y, toNode.z);
 
-			const curve = buildRailCurve({ rail, fromPos, toPos, nodePositions: nodes });
+			const curve = buildRailCurve({ rail, fromPos, toPos, nodePositions: allNodes });
 
 			const curveData = cacheCurve(curve);
 			const segCount = getSegmentCount(rail.railType, curveData.length);
@@ -174,7 +176,8 @@ export function RailRenderer(): React.JSX.Element | null {
 		const rightMesh = rightMeshRef.current;
 		if (!leftMesh || !rightMesh) return;
 
-		const { nodes, rails } = useMapStore.getState();
+		const { nodes, curveNodes, rails } = useMapStore.getState();
+		const allNodes = { ...nodes, ...curveNodes };
 		const cache = geometryCacheRef.current;
 
 		// Check if any dirty rail requires total segment count change
@@ -196,7 +199,7 @@ export function RailRenderer(): React.JSX.Element | null {
 			const fromPos = new Vector3(fromNode.x, fromNode.y, fromNode.z);
 			const toPos = new Vector3(toNode.x, toNode.y, toNode.z);
 
-			const curve = buildRailCurve({ rail, fromPos, toPos, nodePositions: nodes });
+			const curve = buildRailCurve({ rail, fromPos, toPos, nodePositions: allNodes });
 
 			const curveData = cacheCurve(curve);
 			const segCount = getSegmentCount(rail.railType, curveData.length);
